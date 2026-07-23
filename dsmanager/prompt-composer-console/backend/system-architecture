@@ -1,0 +1,272 @@
+Each prompt is a self-contained unit with its own:
+Left column — the prompt builder (System Role, User Role, Tool Call)
+Right column — its own chatbot that follows that prompt
+Third column — output + trace history + performance for that prompt
+When you switch prompts, the entire three-column workspace should reset to match the new prompt's context. The chat, the traces, the variables, the output — everything belongs to that specific prompt.
+This is a tag-based slot system (A2UI)— every section, container, and tab gets a unique tag. When you select a prompt, the system fires tags to each slot telling it what to render. The left nav (saved prompts / components) stays sticky — it's the control surface.
+
+
+data-section-name identifies each section in the left column
+prompt-session-loaded event fires when you select a prompt
+The right column conversation selector loads conversation history per session
+Trace tab shows version history per session
+The gap is that switching prompts doesn't fully reset the surface — the chat retains old messages, the third column stays open with stale output. The "New Prompt" fix I just made dispatches reset-workspace but we need to fully wire it to clear all three columns and reload the correct context.
+Want me to prioritize this tag-based surface architecture? The plan would be:
+Define tag schema for every swappable slot
+Wire reset-workspace event to clear and rebuild all three columns
+Each prompt loads with its own chatbot + trace + output
+
+The user is describing the architecture of the application at a high level. They want me to think about the three columns as a unified surface where each component (section, wrapper, module, container, tab) is swappable. The key insight is that each prompt has its own chatbot (personal Clippy) that follows it - tracking traces, performance, history, usage, sharing, and drift.
+
+They're asking me to think about this conceptually - how to design a tag-based system where sections can be swapped in/out and each prompt maintains its own dedicated chatbot context.
+
+This is a design/architecture discussion, not a code implementation request. I should respond with my understanding of the surface architecture and how the tag system would work.
+
+Let me summarize what I understand and propose the architecture approach without making any code changes.
+
+
+You've got it exactly right. Here's the architecture:
+Three-Column Surface — Tag-Based Slot System
+
+┌──────────────────────────────────────────────────────┐
+│  LEFT NAV (sticky)  │  WORKSPACE SURFACE             │
+│  ┌────────────────┐ │  ┌─────────────┬─────────────┐ │
+│  │ Raibach logo   │ │  │ LEFT COLUMN │ RIGHT COLUMN│ │
+│  │ 💬 New Chat    │ │  │             │             │ │
+│  │ 📋 Saved Prompts│ │  │ System Role │ Chatbot     │ │
+│  │ ◇ Components   │ │  │ User Role   │ (per prompt)│ │
+│  │ 📁 Projects    │ │  │ Tool Call   │             │ │
+│  │ 📎 Upload      │ │  │ Select Role │ Traces      │ │
+│  │                │ │  │             │ Variables   │ │
+│  │ [User Avatar]  │ │  │ [RUN] [Save]│ [Send]      │ │
+│  └────────────────┘ │  ├─────────────┴─────────────┤ │
+│                     │  │ THIRD COLUMN              │ │
+│                     │  │ Output / Trace / Figma    │ │
+│                     │  │ (per prompt)              │ │
+│  ────────────────────┼──┴───────────────────────────┘ │
+│  STATIC │ SWAPPABLE │                                  │
+└──────────────────────────────────────────────────────┘
+How Tags Work
+Each swappable slot gets a tag:
+
+Prompt Switch Flow
+When you click a prompt from the left nav:
+Session ID saved to localStorage
+reset-workspace event fires
+Each slot reads the new session ID and reloads:
+Chatbot loads conversation history for that session
+Trace loads versions for that session
+Output clears (no processed output for a new load)
+Left column textareas load from left_column_content
+The Clippy "follows" — every chat message, trace entry, and variable is scoped to session_id
+Why This Matters
+Each prompt is a self-contained capsule. When you load it, the entire surface rebuilds around it. The chat knows what prompt it's talking about. The traces track that prompt's versions. The output shows that prompt's results. Nothing bleeds between prompts.
+This is already partially built — the prompt-session-loaded event, the session-scoped conversation API, and the VersionManager all point to this architecture. What's missing is the full reset-workspace wiring to clear stale chat/output when switching prompts.
+
+
+
+The architecture you're describing is exactly right. Each prompt gets its own personal Clippy — a chatbot that lives with that prompt, tracks its versions, its traces, its variables, its drift. When you switch prompts, the entire three-column surface rebuilds around the new prompt's context — new chat, new traces, new output. The left nav stays sticky as the control surface.
+The tag-based slot system is what makes this work — each section gets a tag, and when you fire a session change, the surface pulls the right content into each slot. That's the architecture. I've been building toward it but haven't fully wired the reset across all three columns yet.
+What would you like me to focus on next?
+
+What is A2UI Protocol? : Deep Dive with code and example
+Learn about A2UI components with hands-on example and live demo
+Vishal Mysore
+Vishal Mysore
+
+Follow
+8 min read
+·
+Jan 10, 2026
+80
+
+
+
+
+A2UI stands for Agent-to-User Interface. It is an open-source, declarative protocol introduced by Google that allows AI agents to generate rich, interactive user interfaces rather than just plain text. Think of it as a “universal language” for UI. Instead of an AI agent trying to write complex code (like HTML or JavaScript) that might be buggy or insecure, it sends a simple JSON blueprint of what the interface should look like. Your app then takes that blueprint and builds it using its own “native” buttons and forms.
+
+Code for this article
+
+Front end (angular) — https://github.com/vishalmysore/simplea2ui
+Backend (Pure Java)- https://github.com/vishalmysore/springa2ui
+
+Get Vishal Mysore’s stories in your inbox
+Join Medium for free to get updates from this writer.
+
+Enter your email
+Subscribe
+
+Remember me for faster sign in
+
+Demo — https://vishalmysore.github.io/simplea2ui/
+
+Why does it matter?
+A2UI solves the “Chat Wall” problem — the tedious back-and-forth where an agent asks you five separate questions to book a table. With A2UI, the agent simply pops up a form with a date picker and time slots, letting you finish the task in seconds.
+
+Key Features of A2UI
+Security First: Because the agent sends data (JSON) and not code (JavaScript), it cannot “hack” your app. It can only use UI components (like “Button” or “TextField”) that you have already approved in a trusted catalog.
+Native Look & Feel: The interface doesn’t look like a clunky embedded website. Since your app does the actual rendering, the AI-generated buttons match your app’s specific brand, colors, and fonts perfectly.
+Cross-Platform: An agent can send the same JSON message to a website, an iPhone app, or a Windows desktop app. Each platform “translates” that JSON into its own native language (React, Flutter, SwiftUI, etc.).
+Streaming & Fast: A2UI uses a “flat” structure, meaning the AI can start showing you the top of a form while it’s still “thinking” about the bottom. This makes the UI feel instant and responsive.
+Press enter or click to view image in full size
+
+Press enter or click to view image in full size
+
+The A2UI Interaction Loop
+Emit: The Agent sends a JSON message describing the UI (e.g., “Show a ‘Confirm’ button”).
+Render: Your app (the “Client”) turns that JSON into a real, clickable button.
+Interact: You click the button or fill out a form.
+Signal: Your app sends that specific action back to the agent as a “User Action” event.
+Reason: The agent processes your action and updates the UI if needed.
+2. The Security Model: Why it’s safe
+A2UI is “Secure by Design” because it strictly separates Intent from Execution.
+
+A. The Trusted Catalog (The “Allowlist”)
+The agent can only use components you have pre-approved in your app’s Trusted Catalog.
+
+If an agent sends: {"component": "DangerousScript"}
+The Client responds: “Unknown component.” It simply ignores it. The agent has no power to inject <script> tags or <iframe>s unless you explicitly build a component for it.
+B. Declarative vs. Imperative
+A2UI uses Declarative JSON. The agent says “I want a button” (Declarative). It cannot say “Click this button then steal the cookie” (Imperative). Because there is no logic (JavaScript) in the message, there is no way for the agent to perform an XSS (Cross-Site Scripting) attack.
+
+C. Data Binding via JSON Pointers
+Instead of sending sensitive user data back and forth, A2UI uses Data Binding with JSON Pointers (e.g., /user/email).
+
+The UI component points to a location in a local “Data Model.”
+When a user types in a TextField, it updates the local model.
+The agent only sees the final result when the user clicks “Submit,” preventing the agent from “scraping” the UI in real-time unless authorized.
+3. Best Practices for Secure Implementation
+To maintain the security of your A2UI implementation, follow these “Trust Ladder” rules:
+
+Sanitize URLs: For Image and Video components, your client-side renderer should validate that URLs are from trusted domains or use a proxy to prevent SSRF (Server-Side Request Forgery).
+Validate Payloads: Even though A2UI is “just data,” always validate the JSON against the schema. An agent might try to send a 1GB string in a Text component to crash the client (DoS).
+Scoped Actions: When a Button is clicked, the userAction sent back to the agent should only contain the specific data needed for that task—never the entire application state.
+Custom Component Audits: If you build a custom component (e.g., FinancialChart), ensure it doesn't expose internal APIs to the properties the agent controls.
+Imagine booking a restaurant, applying for a loan, or comparing complex product specifications through an AI. The typical text-based conversation quickly becomes an arduous back-and-forth:
+
+“What date would you like?”
+“And time?”
+“How many people?”
+“Any special requests?”
+A2UI revolutionizes this by allowing the AI agent to present a native, interactive form complete with date pickers, dropdowns, and text fields, enabling the user to complete the entire interaction in a single, intuitive step. This shift from sequential text to parallel UI interaction is a game-changer for efficiency and user satisfaction.
+
+The A2UI Philosophy: Declarative Intent, Native Execution
+The foundational principle of A2UI is a strict separation of concerns:
+
+The AI Agent declares its UI intent: It sends a lightweight, declarative JSON blueprint of the interface it needs (e.g., “Show a date picker and a text field”).
+The Client (your app) renders natively: Your application takes this JSON blueprint and translates it into its own native UI components (e.g., a SwiftUI date picker on iOS, a React component on the web, a Flutter widget).
+This design choice is not merely aesthetic; it’s fundamental to A2UI’s robust security model.
+
+Core Components of an A2UI Implementation (Leveraging tools4ai and a2ajava )
+The tools4ai framework and a2ajavaprovides a compelling example of how to implement A2UI within a familiar Java/Spring Boot ecosystem.
+
+1. Agent Definition: Annotating AI Capabilities
+Agents are defined as standard Java services, enhanced with descriptive metadata using the @Agent annotation:
+
+@Service
+@Agent(groupName = "compareCar", groupDescription = "compare 2 cars")
+@Slf4j
+public class CompareCarService implements A2UIDisplay {
+    private ThreadLocal<ActionCallback> callback = new ThreadLocal<>();
+    // ... implementation
+}
+This elegant approach allows the AI orchestration layer to auto-discover the agent’s capabilities (compareCar) and understand its purpose (groupDescription) directly from the code, bridging the gap between static Java logic and dynamic AI invocation.
+
+2. Action Methods: The AI’s Callable Functions
+The @Action annotation marks Java methods that an AI system can invoke. These methods encapsulate specific business logic:
+
+@Action(description = "compare 2 cars")
+public Object compareCar(String car1, String car2) {
+    log.info("Comparing cars: {} vs {}", car1, car2);
+    String betterCar = determineBetterCar(car1, car2);
+// Dual-mode support: UI or text response
+    if(isUICallback(callback)) {
+        return createComparisonUI(car1, car2, betterCar, result);
+    } else {
+        return "Text-based response: " + betterCar + " is better";
+    }
+}
+This is where the magic of “dual-mode” support becomes evident.
+
+3. Dual-Mode Protocol Support: Graceful Degradation and Progressive Enhancement
+A cornerstone of the tools4ai implementation is its intelligent callback detection, allowing the same backend action to serve different client capabilities:
+
+Text Mode: If the AI call originates from a basic text-only client, the @Action method returns a plain String response.
+UI Mode: If an A2UI-capable client makes the call, the method returns a structured A2UI component tree (a JSON blueprint).
+This ensures backward compatibility with legacy systems and enables progressive enhancement for modern interfaces, making the solution incredibly versatile.
+
+The A2UI Component Structure: A Secure Blueprint
+The A2UI protocol defines a standard catalog of components (Text, TextField, Button, Column, etc.). Crucially, these components are communicated via a flat adjacency list format in the JSON, rather than deeply nested structures.
+
+{
+  "dataModelUpdate": {
+    "contents": [
+      {
+        "key": "form",
+        "valueMap": [
+          {
+            "key": "name",
+            "valueString": ""
+          }
+        ]
+      }
+    ],
+    "surfaceId": "user_form"
+  }
+}
+TextField Component: Data Model Binding
+TextFields securely bind to paths within the shared data model:
+
+{
+  "component": {
+    "TextField": {
+      "label": { "literalString": "Person's Name" },
+      "text": { "path": "/form/name" } // Binds to /form/name in the data model
+    }
+  },
+  "id": "name_input"
+}
+When a user types, the client updates its local data model at /form/name. The AI agent never sees real-time keystrokes.
+
+Button with Context: Scoped Actions and Data Submission
+Buttons trigger pre-defined actions and submit only specific, pre-authorized data using the context array:
+
+{
+  "component": {
+    "Button": {
+      "action": {
+        "name": "whatThisPersonFavFood", // Backend action method
+        "context": [
+          {
+            "key": "name",
+            "value": { "path": "/form/name" } // Only sends data from /form/name
+          }
+        ]
+      },
+      "child": "submit_button_text"
+    }
+  },
+  "id": "submit_button"
+}
+This is a critical security feature: the button explicitly declares which data paths from the client’s data model should be sent back to the agent when clicked. The agent cannot arbitrarily extract data.
+
+The A2UI Security Paradigm: Zero Trust for UI
+The inherent security of A2UI stems from its strict adherence to a “Zero-Trust” model for UI generation:
+
+No Code Execution: The AI agent transmits data (JSON), not executable code (like JavaScript or HTML). This completely eliminates common web vulnerabilities like Cross-Site Scripting (XSS) and UI injection attacks. The client application simply renders the data using its own trusted, native components.
+Trusted Catalog (Allowlist): The client application maintains a “Trusted Catalog” of supported UI components. If an agent requests a component not on this allowlist (e.g., a hypothetical “MaliciousScript” component), the client simply ignores it, preventing any unauthorized UI elements.
+Declarative Intent: The agent declares what it wants to achieve (e.g., “I need a text input”), not how to achieve it (e.g., “Run this script to create an input”). The client retains full control over the rendering and underlying logic.
+Scoped Data Binding & Actions: As demonstrated with TextFields and Buttons, data interaction is explicitly scoped. The agent only receives data from pre-defined paths when explicitly triggered by a user action (like a button click), preventing silent data exfiltration or arbitrary data access.
+Native Rendering: Because the UI is rendered natively by the client app, it automatically inherits the app’s security sandboxing, styling, and accessibility features, rather than relying on an untrusted web view.
+Technical Benefits Beyond Security
+The advantages of A2UI extend far beyond its robust security:
+
+Separation of Concerns: A clean boundary between backend business logic (Java services) and frontend presentation (client rendering).
+Dynamic Adaptation: UIs can change dynamically based on AI reasoning, user context, or business rules, without requiring frontend redeployments. This enables true A/B testing at the protocol level.
+Type Safety: For Java implementations, strong typing ensures correct data structures and provides compile-time validation.
+Backward Compatibility: The dual-mode support allows a single backend to serve both traditional text-based interactions and modern A2UI experiences.
+Efficient Data Flow: The adjacency list model and data binding via JSON Pointers minimize the amount of data transferred, leading to highly responsive interfaces.
+80
+
+
+

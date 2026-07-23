@@ -1,0 +1,21 @@
+{
+  "type": "function",
+  "function": {
+    "name": "create_project",
+    "description": "Creates a new project in the PostgreSQL database. Use this when the user asks to create, initialize, save, or start a new project. The description should be a concise summary of the project's purpose and scope extracted from the user's request or conversation context.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The title or name of the project. Should be clear and descriptive."
+        },
+        "description": {
+          "type": "string",
+          "description": "The detailed project description. Always extract or synthesize this from the user's request. This is optional but highly recommended to capture the project's scope and goals."
+        }
+      },
+      "required": ["name"]
+    }
+  }
+}

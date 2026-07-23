@@ -1,0 +1,17 @@
+{
+  "type": "function",
+  "function": {
+    "name": "get_project",
+    "description": "Retrieves the details of a specific project by its ID. Use this when you need to fetch a single project's information including its name, description, and creation date.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The unique identifier of the project to retrieve."
+        }
+      },
+      "required": ["id"]
+    }
+  }
+}
