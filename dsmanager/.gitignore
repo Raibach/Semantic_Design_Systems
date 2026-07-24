@@ -1,0 +1,46 @@
+# Environment / credentials
+.env
+nvidia_credentials.env
+*.env
+zilliz-cloud-Free-01-username-password.txt
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+node_modules/
+frontend/.vite/
+frontend/dist/
+
+# Milvus local database
+milvus.db/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Database dumps (keep one live backup only)
+database-backup-*.sql
+
+# Uploads (runtime data)
+uploads/
+
+# Config files with secrets
+config/milvus_export.json

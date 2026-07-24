@@ -1,0 +1,41 @@
+# Prompt Composer Console — Python Dependencies
+# Install: pip3 install -r requirements.txt
+# Updated 2026-07-16: Python 3.12 + milvus-lite 3.1.0 (pure Python)
+
+# ── API & Web Framework ──────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+requests>=2.32.0
+python-multipart==0.0.6
+python-dotenv>=1.0.1
+
+# ── Monitoring ─────────────────────────────────────────────
+sentry-sdk[fastapi]>=2.0.0
+
+# ── Database ────────────────────────────────────────────
+psycopg2-binary==2.9.11
+asyncpg==0.29.0
+SQLAlchemy>=2.0.36
+alembic>=1.14.0
+
+# ── Vector Search & Embeddings ──────────────────────────
+# milvus-lite 3.1.0 — pure-Python, requires Python 3.10+
+# pymilvus provides the MilvusClient API; milvus-lite is the local backend
+pymilvus>=2.5.0
+milvus-lite>=3.1.0
+sentence-transformers>=3.3.0
+numpy>=1.26.4
+
+# ── PyTorch (CPU only — for sentence-transformers) ──────
+torch>=2.5.0
+torchvision>=0.20.0
+torchaudio>=2.5.0
+
+# ── PDF Processing ──────────────────────────────────────
+PyMuPDF>=1.26.0
+
+# ── AI & ML ─────────────────────────────────────────────
+openai>=1.6.0
+
+# ── Utilities ───────────────────────────────────────────
+psutil>=5.9.0

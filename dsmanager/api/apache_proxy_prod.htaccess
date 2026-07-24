@@ -1,0 +1,15 @@
+# Apache Reverse Proxy for prompt-portal-prod.raibach.net/api (production)
+# Deployed to prompt-portal-prod.raibach.net/api/.htaccess
+# When in /api/ subfolder, requests like /api/health have path "health" relative to this dir
+# Backend expects /api/health so we prepend /api/ to the proxied path
+
+RewriteEngine On
+
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ http://localhost:8003/api/$1 [P,L]
+
+RequestHeader set X-Forwarded-Proto "https"
+RequestHeader set X-Forwarded-Host "prompt-portal-prod.raibach.net"
+
+ProxyPreserveHost On

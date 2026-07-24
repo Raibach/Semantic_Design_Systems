@@ -1,0 +1,827 @@
+# Grace AI - Phase 1A Configuration
+#
+# This file centralizes all settings for Grace AI's data ingestion pipeline.
+# Edit these values to tune the system based on your priorities and learnings.
+#
+# Last updated: 2025-10-31
+
+# ==============================================================================
+# 1. EVALUATION CRITERIA WEIGHTS
+# ==============================================================================
+# How important is each criterion? (1.0 = normal, 1.5 = very important, 0.5 = less important)
+# Higher weights mean the criterion has more impact on the final score.
+
+evaluation_criteria:
+  # Source Attribution (who said what, where did it come from?)
+  attribution:
+    weight: 1.5  # Very important - need to know sources
+    cooperation_bonus: 3.0  # Reward for transparent sourcing
+    exploitation_penalty: -5.0  # Punish for hiding sources
+    description: "Proper attribution of claims to verifiable sources"
+
+  # Anonymous Sources (how much relies on unnamed sources?)
+  anonymous_sources:
+    weight: 1.2  # Important - prefer named sources
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Appropriate use of anonymous sources with verification"
+
+  # Corrections Policy (do they fix mistakes transparently?)
+  corrections:
+    weight: 1.3  # Very important - shows integrity
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Clear correction policy and transparent error handling"
+
+  # Editorial Independence (free from conflicts of interest?)
+  independence:
+    weight: 1.4  # Very important - avoid manipulation
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Independence from political and commercial pressures"
+
+  # Fairness & Balance (multiple perspectives presented?)
+  fairness:
+    weight: 1.2  # Important - need balanced view
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Fair representation of multiple viewpoints"
+
+  # Libel Safeguards (do they verify before publishing?)
+  libel_safeguards:
+    weight: 1.3  # Very important - prevent false claims
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Strong fact-checking and legal review processes"
+
+  # Originality vs Aggregation (original reporting vs copying?)
+  originality:
+    weight: 1.1  # Moderately important
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Original reporting with proper attribution for aggregation"
+
+  # Context & Nuance (full picture or cherry-picked?)
+  context:
+    weight: 1.4  # Very important - avoid misleading framing
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Complete context and nuanced analysis"
+
+  # Timeliness (current vs outdated?)
+  timeliness:
+    weight: 1.0  # Normal importance
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Timely reporting with clear timestamps"
+
+  # Metadata Quality (proper tagging, bylines, dates?)
+  metadata:
+    weight: 1.2  # Important for verification
+    cooperation_bonus: 3.0
+    exploitation_penalty: -5.0
+    description: "Complete metadata including bylines, dates, and sources"
+
+# ==============================================================================
+# 2. BUCKET THRESHOLDS
+# ==============================================================================
+# Score ranges that determine which bucket data goes into.
+# Scores are 0-100 after evaluation criteria and game theory adjustments.
+
+bucket_thresholds:
+  # GOOD: Accept immediately and integrate
+  good:
+    min_score: 75.0
+    max_score: 100.0
+    description: "High-quality verified sources ready for integration"
+    auto_integrate: true  # Automatically add to knowledge base
+    requires_review: false
+
+  # SUSPECT: Human review required
+  suspect:
+    min_score: 40.0
+    max_score: 74.9
+    description: "Questionable quality - needs human evaluation"
+    auto_integrate: false
+    requires_review: true
+    max_review_days: 14  # Force decision after 14 days
+
+  # PROPAGANDA: Isolate, never integrate
+  propaganda:
+    min_score: 20.0
+    max_score: 39.9
+    description: "Active manipulation detected - study but never use"
+    auto_integrate: false
+    requires_review: true
+    keep_for_analysis_days: 180  # Keep for 6 months to study patterns
+
+  # SOCIAL_EXCLUDED: Reject permanently
+  social_excluded:
+    min_score: 0.0
+    max_score: 19.9
+    description: "Below minimum standards - permanent rejection"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 30
+
+  # GARBAGE_SKIPPED: Purge immediately
+  garbage_skipped:
+    description: "Spam, malware, nonsense - immediate deletion"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 7  # Keep briefly for forensics
+
+# ==============================================================================
+# 3. SPECIAL RULES
+# ==============================================================================
+# Pattern matching and source reputation rules
+
+special_rules:
+  # Auto-reject patterns (immediate GARBAGE_SKIPPED)
+  auto_reject_patterns:
+    - "\\bclick here\\b.*\\bnow\\b"  # Clickbait
+    - "\\bsHaRe BeFoRe.*\\b"  # All-caps manipulation
+    - "\\bWAKE UP SHEEPLE\\b"  # Conspiracy rhetoric
+    - "\\bTHEY DON'T WANT YOU TO KNOW\\b"
+    - "\\bDOCTORS HATE.*\\b"
+    - "\\b(viagra|cialis|pharmacy)\\b.*\\bcheap\\b"  # Spam
+    - "\\bCLICK.*BEFORE.*DELETE"  # Urgency manipulation
+    - "\\bYOU WON'T BELIEVE\\b"  # Clickbait
+
+  # Auto-flag patterns (log as anomaly for review)
+  auto_flag_patterns:
+    - "\\banonymous sources?\\b.*\\bsay\\b"  # Heavy anonymous sourcing
+    - "\\bsome people\\b.*\\bclaim\\b"  # Vague attribution
+    - "\\bit is believed\\b"  # Passive voice hiding source
+    - "\\brumors?\\b.*\\bsuggest\\b"  # Unverified claims
+    - "\\baccording to reports\\b"  # Vague sourcing
+    - "\\ballegedly\\b.*\\ballegedly\\b.*\\ballegedly\\b"  # Too many hedges
+
+  # Source whitelist (always >= SUSPECT bucket minimum)
+  # These are trusted sources that get benefit of the doubt
+  source_whitelist:
+    - "Associated Press"
+    - "Reuters"
+    - "Nature"
+    - "Science"
+    - "The Lancet"
+    - "New England Journal of Medicine"
+    - "PNAS"  # Proceedings of the National Academy of Sciences
+    # Add your trusted sources here
+
+  # Source blacklist (always <= PROPAGANDA bucket maximum)
+  # These are known unreliable sources
+  source_blacklist:
+    - "InfoWars"
+    - "Natural News"
+    - "Before It's News"
+    # Add known bad actors here
+
+  # Domain blacklist (auto-reject these domains)
+  domain_blacklist:
+    - ".ru/spam/"
+    - "free-downloads-now"
+    - "get-rich-quick"
+    # Add spam domains here
+
+# ==============================================================================
+# 4. STORAGE SETTINGS
+# ==============================================================================
+# How long to keep data in each bucket before automatic actions
+
+storage:
+  # Retention periods (days)
+  retention:
+    good: 365  # Keep good sources for 1 year before archiving
+    suspect: 90  # Keep suspect sources for 90 days
+    propaganda: 180  # Keep propaganda for 6 months (study patterns)
+    social_excluded: 30  # Keep excluded for 30 days (forensics)
+    garbage_skipped: 7  # Purge garbage after 7 days
+
+  # Automatic actions
+  auto_actions:
+    # Archive old data (move to cold storage)
+    archive_after_days: 365
+
+    # Force decision on SUSPECT items
+    suspect_max_pending_days: 14
+    suspect_default_action: "reject"  # If no decision after max days
+
+    # Purge settings
+    enable_auto_purge: true
+    purge_garbage_immediately: false  # Keep for brief forensics
+    purge_excluded_after_retention: true
+
+  # Storage limits
+  limits:
+    max_sources_per_bucket: 10000  # Prevent unlimited growth
+    max_total_size_gb: 100  # Maximum storage per bucket
+    warn_at_percent: 80  # Warn when bucket is 80% full
+
+# ==============================================================================
+# 5. LOGGING SETTINGS
+# ==============================================================================
+# What to log and how long to keep logs
+
+logging:
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+
+  # What events to log
+  events:
+    ingestion: true  # Log all data ingestion events
+    evaluation: true  # Log all evaluation decisions
+    anomaly: true  # Log all anomaly detections
+    health: true  # Log all health monitoring events
+    audit: true  # Log all audit trail entries
+
+  # Retention periods (days)
+  retention:
+    ingestion_logs: 90
+    evaluation_logs: 180  # Keep longer - important for learning
+    anomaly_logs: 180  # Keep longer - study patterns
+    health_logs: 90
+    audit_logs: 365  # Keep audit trail for 1 year (compliance)
+    system_logs: 30
+
+  # Report generation
+  reports:
+    generate_daily: true
+    generate_weekly: true
+    generate_monthly: true
+    auto_email_reports: false  # Set to true when email configured
+    email_recipients: []
+
+  # Alert thresholds (when to send notifications)
+  alerts:
+    anomaly_critical: true  # Alert on CRITICAL anomalies
+    anomaly_high: true  # Alert on HIGH anomalies
+    health_degradation: true  # Alert on performance degradation
+    health_critical: true  # Alert on CRITICAL health events
+    storage_limit_warning: true  # Alert when storage limits reached
+
+# ==============================================================================
+# 6. HEALTH MONITORING
+# ==============================================================================
+# What constitutes degradation and when to alert
+
+health_monitoring:
+  # Enable health checks
+  enabled: true
+
+  # Check frequency
+  check_interval_hours: 6  # Check every 6 hours
+
+  # Degradation thresholds
+  degradation:
+    # Performance drop percentage that triggers warning
+    warning_threshold_percent: 5.0
+
+    # Performance drop percentage that triggers critical alert
+    critical_threshold_percent: 10.0
+
+    # Minimum sample size for reliable degradation detection
+    min_samples: 10
+
+  # Baseline calculation
+  baseline:
+    # How many recent evaluations to use for baseline
+    rolling_window_size: 100
+
+    # Re-calculate baseline every N hours
+    recalculate_every_hours: 24
+
+  # Correlation analysis
+  correlation:
+    # Enable automatic correlation between sources and performance
+    enabled: true
+
+    # Minimum correlation coefficient to report
+    min_correlation: 0.7
+
+    # Confidence level required
+    min_confidence: 0.85
+
+  # Actions on degradation
+  actions:
+    on_warning:
+      - "log_health_event"
+      - "flag_recent_sources"
+
+    on_critical:
+      - "log_health_event"
+      - "flag_recent_sources"
+      - "send_alert"
+      - "pause_auto_integration"  # Stop automatic integration
+
+# ==============================================================================
+# 7. UPDATE SCHEDULE
+# ==============================================================================
+# Consciousness update cycles and review periods
+
+update_schedule:
+  # How often do consciousness updates happen?
+  update_frequency: "monthly"  # Options: weekly, biweekly, monthly, quarterly, yearly
+
+  # Update timing
+  timing:
+    # Day of month for monthly updates (1-28)
+    day_of_month: 1
+
+    # Day of week for weekly updates (0=Monday, 6=Sunday)
+    day_of_week: 0  # Monday
+
+    # Hour of day to run updates (0-23, 24-hour format)
+    hour_of_day: 2  # 2 AM (low usage time)
+
+  # Review periods
+  review:
+    # How long for human review before update?
+    review_period_days: 7
+
+    # Minimum reviewers required
+    min_reviewers: 2
+
+    # Require unanimous approval?
+    require_unanimous: false
+
+    # Percentage of reviewers needed to approve
+    approval_threshold_percent: 66.7  # 2/3 majority
+
+  # Integration settings
+  integration:
+    # Automatically integrate after review approval?
+    auto_integrate_after_approval: false  # Manual integration by default
+
+    # Create backup before integration?
+    backup_before_integration: true
+
+    # Backup retention (days)
+    backup_retention_days: 90
+
+    # Rollback window (hours after integration)
+    rollback_window_hours: 48
+
+  # What gets included in updates?
+  inclusion_criteria:
+    # Only include GOOD bucket sources
+    buckets:
+      - "good"
+
+    # Minimum score required
+    min_score: 75.0
+
+    # Minimum age (days) - let sources "settle"
+    min_age_days: 7
+
+    # Require multiple curator agreement?
+    require_curator_agreement: true
+
+    # Minimum number of curators who must agree
+    min_curator_count: 2
+
+# ==============================================================================
+# 8. CURATOR SETTINGS
+# ==============================================================================
+# Settings for human curators
+
+curators:
+  # Curator training
+  training:
+    # Require training before evaluating?
+    required: true
+
+    # Number of supervised evaluations before independence
+    supervised_count: 10
+
+    # Training materials location
+    guide_path: "CURATOR_GUIDE.md"
+
+  # Evaluation consistency tracking
+  consistency:
+    # Enable consistency tracking
+    enabled: true
+
+    # Standard deviation threshold for "consistent" rating
+    consistent_max_std_dev: 15.0
+
+    # Standard deviation threshold for "inconsistent" warning
+    inconsistent_std_dev: 25.0
+
+    # Minimum evaluations before tracking consistency
+    min_evaluations: 20
+
+  # Workload limits
+  workload:
+    # Maximum evaluations per curator per day
+    max_per_day: 50
+
+    # Maximum pending reviews per curator
+    max_pending: 100
+
+    # Warn when pending reviews exceed this number
+    warn_at_pending: 50
+
+# ==============================================================================
+# 9. ANOMALY DETECTION
+# ==============================================================================
+# Settings for detecting unusual patterns
+
+anomaly_detection:
+  # Enable automatic anomaly detection
+  enabled: true
+
+  # Score-based anomalies
+  score_anomalies:
+    # Flag if score is this many standard deviations from mean
+    std_dev_threshold: 2.0
+
+    # Minimum samples needed for statistical analysis
+    min_samples: 30
+
+  # Pattern-based anomalies
+  patterns:
+    # Flag sources with behavior changes
+    detect_behavior_changes: true
+
+    # Minimum historical data points to detect change
+    min_history: 10
+
+    # Detect conflicts with previously accepted data
+    detect_conflicts: true
+
+    # Flag edge cases
+    detect_edge_cases: true
+
+  # Response to anomalies
+  response:
+    # Severity levels that require human review
+    require_review_severity:
+      - "high"
+      - "critical"
+
+    # Auto-quarantine on critical anomalies?
+    auto_quarantine_critical: true
+
+# ==============================================================================
+# 10. FINE-TUNING SETTINGS
+# ==============================================================================
+# Settings for training custom models on Grace AI patterns
+
+fine_tuning:
+  # Enable automatic training data collection
+  collect_training_data: true
+
+  # Data collection
+  collection:
+    # Minimum score to include in training data
+    min_score: 70.0
+
+    # Include SUSPECT bucket in training? (controversial)
+    include_suspect: false
+
+    # Maximum training examples
+    max_examples: 10000
+
+  # Training schedule
+  training:
+    # How often to retrain model?
+    frequency: "quarterly"  # Options: monthly, quarterly, yearly, manual
+
+    # Minimum new examples before retraining
+    min_new_examples: 1000
+
+  # Model settings
+  model:
+    base_model: "magnum-v3-34b"
+    format: "chatml"
+    lora_rank: 8
+    learning_rate: 0.0001
+
+# ==============================================================================
+# 11. SYSTEM PATHS
+# ==============================================================================
+# File system paths for various components
+
+paths:
+  # Data directories
+  quarantine_storage: "logs/quarantine"
+  ingestion_logs: "logs/ingestion"
+  backups: "logs/backups"
+  archives: "logs/archives"
+
+  # Template directories
+  templates: "templates"
+  examples: "examples"
+
+  # Configuration
+  config_dir: "."
+
+  # Fine-tuning
+  fine_tuning_dir: "fine-tuning"
+  training_data_dir: "fine-tuning/training_data"
+  models_dir: "fine-tuning/models"
+
+# ==============================================================================
+# 12. FEATURE FLAGS
+# ==============================================================================
+# Enable/disable features for gradual rollout or testing
+
+features:
+  # Core features
+  enable_evaluation: true
+  enable_quarantine: true
+  enable_storage: true
+  enable_logging: true
+
+  # Advanced features
+  enable_health_monitoring: true
+  enable_anomaly_detection: true
+  enable_auto_integration: false  # Start with manual integration
+  enable_fine_tuning: false  # Enable when ready to train models
+
+  # Experimental features
+  enable_ml_anomaly_detection: false  # Machine learning-based anomaly detection
+  enable_auto_correlation: true  # Automatic correlation analysis
+  enable_predictive_scoring: false  # Predict scores before full evaluation
+
+# ==============================================================================
+# NOTES FOR TUNING
+# ==============================================================================
+#
+# Start Conservative, Tune Over Time:
+# 1. Begin with strict thresholds (high scores required for GOOD bucket)
+# 2. Monitor false positives/negatives
+# 3. Adjust weights and thresholds based on experience
+#
+# Key Metrics to Watch:
+# - Percentage in each bucket (should GOOD be ~10%? 50%? tune to your needs)
+# - Curator consistency (are different curators agreeing?)
+# - Health metrics (is quality improving or degrading?)
+# - Anomaly patterns (what keeps getting flagged?)
+#
+# Common Adjustments:
+# - If too much good data rejected: Lower GOOD threshold from 75 to 70
+# - If too much bad data accepted: Raise GOOD threshold from 75 to 80
+# - If specific criterion too harsh: Lower its weight
+# - If specific criterion too lenient: Raise its weight
+#
+# Game Theory Impact:
+# - cooperation_bonus of +3 per criterion = up to +30 total (10 criteria)
+# - exploitation_penalty of -5 per criterion = up to -50 total
+# - This creates ~80 point swing between fully cooperative vs fully exploitative
+#
+# Review Your Config Regularly:
+# - Monthly: Review bucket distributions and adjust thresholds
+# - Quarterly: Review criterion weights based on what matters most
+# - Yearly: Review entire strategy and make major adjustments
+
+# ==============================================================================
+# 13. AUDIT TRANSPARENCY (AUTHORSHIP PROOF)
+# ==============================================================================
+# Complete logging of Grace-Writer dialogue for authorship verification
+#
+# PURPOSE: Prove authorship through process transparency
+# - Writers who engaged with Grace can defend their work with dialogue logs
+# - Complete conversation history shows genuine cognitive engagement
+# - Prevents plagiarism accusations through documented thinking process
+# - Enables educators to review entire writing/learning process
+# - Demonstrates writer's critical thinking and editorial decisions
+
+audit_transparency:
+  # Enable complete dialogue logging
+  enabled: true
+
+  # What to log in dialogue exchanges
+  dialogue_logging:
+    # Log all user messages to Grace
+    log_user_messages: true
+
+    # Log all Grace responses
+    log_grace_responses: true
+
+    # Log context and prompts used
+    log_prompts_and_context: true
+
+    # Log timestamps for every exchange
+    log_timestamps: true
+
+    # Log user's revision choices
+    log_revision_decisions: true
+
+    # Log writer's reasoning for accepting/rejecting suggestions
+    log_writer_reasoning: true
+
+  # Editorial feedback tracking
+  editorial_feedback:
+    # Track all suggestions made by Grace
+    track_suggestions: true
+
+    # Track which suggestions were accepted
+    track_acceptances: true
+
+    # Track which suggestions were rejected
+    track_rejections: true
+
+    # Track modifications made to Grace's suggestions
+    track_modifications: true
+
+    # Require writer to explain rejection reasons
+    require_rejection_reasoning: true
+
+  # Revision history
+  revision_history:
+    # Maintain complete version history
+    enable_version_tracking: true
+
+    # Track diffs between versions
+    track_diffs: true
+
+    # Associate each revision with specific dialogue exchange
+    link_revisions_to_dialogue: true
+
+    # Track time spent on each revision
+    track_revision_time: true
+
+    # Maximum versions to keep
+    max_versions: 100
+
+  # Process documentation
+  process_documentation:
+    # Document writer's initial state (before Grace)
+    capture_initial_draft: true
+
+    # Document all intermediate states
+    capture_all_iterations: true
+
+    # Document final state (after Grace)
+    capture_final_draft: true
+
+    # Generate process summary report
+    generate_process_report: true
+
+    # Include thinking process notes
+    include_metacognitive_notes: true
+
+  # Authorship verification
+  authorship_verification:
+    # Generate authorship certificate
+    generate_certificate: true
+
+    # Include metrics proving engagement
+    include_engagement_metrics: true
+
+    # Metrics to include
+    engagement_metrics:
+      - "total_dialogue_exchanges"
+      - "suggestions_considered"
+      - "suggestions_accepted"
+      - "suggestions_rejected"
+      - "suggestions_modified"
+      - "time_spent_total"
+      - "time_spent_per_revision"
+      - "critical_thinking_instances"  # Times writer questioned Grace
+      - "independent_decisions"  # Times writer overruled Grace
+      - "unique_contributions"  # Writer's original additions
+
+    # Cryptographic signing of dialogue logs
+    cryptographic_signing: true
+
+    # Hash each dialogue entry for tamper-evidence
+    hash_entries: true
+
+  # Educator access
+  educator_access:
+    # Allow educators to review complete dialogue
+    enable_educator_review: true
+
+    # Educator access level
+    educator_permissions:
+      - "view_all_dialogue"
+      - "view_revision_history"
+      - "view_process_report"
+      - "view_engagement_metrics"
+      - "view_authorship_certificate"
+      - "export_complete_audit_trail"
+
+    # Privacy controls
+    privacy:
+      # Require student consent for educator access
+      require_student_consent: true
+
+      # Anonymization options for research
+      enable_anonymization: false
+
+  # Storage and retention
+  storage:
+    # Where to store dialogue logs
+    dialogue_log_path: "logs/dialogue"
+
+    # Where to store revision history
+    revision_history_path: "logs/revisions"
+
+    # Where to store authorship certificates
+    certificate_path: "logs/certificates"
+
+    # Retention period for dialogue logs (days)
+    dialogue_retention_days: 365  # Keep for 1 year
+
+    # Retention period for revision history (days)
+    revision_retention_days: 730  # Keep for 2 years (academic record)
+
+    # Retention period for certificates (days)
+    certificate_retention_days: 1825  # Keep for 5 years (permanent record)
+
+    # Automatic archival
+    auto_archive_after_days: 365
+
+    # Backup frequency
+    backup_frequency: "daily"
+
+  # Export formats
+  export:
+    # Enable export to various formats
+    enable_export: true
+
+    # Available export formats
+    formats:
+      - "json"  # Machine-readable
+      - "pdf"   # Human-readable report
+      - "html"  # Interactive viewer
+      - "markdown"  # Plain text
+      - "csv"   # Metrics spreadsheet
+
+    # Include in exports
+    export_contents:
+      - "complete_dialogue"
+      - "revision_history"
+      - "engagement_metrics"
+      - "process_timeline"
+      - "authorship_certificate"
+
+  # Anti-plagiarism features
+  anti_plagiarism:
+    # Compare final work against Grace's raw suggestions
+    detect_verbatim_copying: true
+
+    # Flag if writer accepted >90% of Grace's text without modification
+    flag_high_acceptance_rate: true
+    high_acceptance_threshold: 0.90
+
+    # Require minimum independent contribution
+    require_min_independence: true
+    min_independence_percentage: 30.0  # At least 30% must be writer's own work
+
+    # Track original thinking instances
+    track_original_thinking: true
+
+  # Real-time transparency
+  real_time:
+    # Show writer their engagement metrics in real-time
+    show_live_metrics: true
+
+    # Warn if approaching plagiarism thresholds
+    warn_on_threshold_approach: true
+
+    # Encourage independent thinking
+    prompt_for_critical_engagement: true
+
+    # Frequency of engagement prompts
+    engagement_prompt_frequency: 5  # Every 5 exchanges
+
+  # Integration with academic systems
+  academic_integration:
+    # Export to learning management systems (LMS)
+    enable_lms_export: true
+
+    # Supported LMS formats
+    lms_formats:
+      - "canvas"
+      - "blackboard"
+      - "moodle"
+      - "scorm"
+
+    # Include in LMS submissions
+    attach_to_submission:
+      - "authorship_certificate"
+      - "process_report"
+      - "engagement_metrics"
+
+  # Dispute resolution
+  dispute_resolution:
+    # If authorship is questioned, provide complete evidence
+    enable_dispute_mode: true
+
+    # What to include in dispute package
+    dispute_package:
+      - "complete_unredacted_dialogue"
+      - "timestamped_revision_history"
+      - "cryptographic_signatures"
+      - "engagement_metrics"
+      - "comparative_analysis"  # Original vs Grace's suggestions vs final
+      - "independent_contribution_analysis"
+
+    # Generate comparison reports
+    generate_comparison_reports: true

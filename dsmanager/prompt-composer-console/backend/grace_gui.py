@@ -25,21 +25,46 @@ ERROR HANDLING: Use <error-banner message="..."/> only. Never create debug pages
 </critical_protocol>
 """
 
-# Model provider configuration - DeepSeek primary, NVIDIA fallback
+# Model provider configuration - DeepSeek primary, Anthropic fallback
 MODEL_PROVIDERS = {
     "deepseek": {
         "name": "DeepSeek API",
         "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",  # Fast model, no reasoning overhead
+        "model": "deepseek-v4-pro",  # Primary model with reasoning support
         "enabled": True,
         "priority": 1,
+        "extra_body": {
+            "thinking": {"type": "enabled"},
+            "reasoning_effort": "high",
+        },
+    },
+    "deepseek_chat": {
+        "name": "DeepSeek Chat API",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-chat",  # Legacy chat model (deprecated 2026/07/24)
+        "enabled": False,
+        "priority": 2,
+    },
+    "deepseek_reasoner": {
+        "name": "DeepSeek Reasoner API",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-reasoner",  # Reasoning model
+        "enabled": False,  # Disabled by default - use only when needed
+        "priority": 3,
+    },
+    "anthropic": {
+        "name": "Anthropic API",
+        "base_url": "https://api.deepseek.com/anthropic",
+        "model": "claude-3-5-sonnet-20240620",
+        "enabled": False,
+        "priority": 4,
     },
     "nvidia_nim": {
         "name": "NVIDIA NIM Cloud API",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
         "enabled": False,  # Disabled - too slow and unreliable
-        "priority": 2,
+        "priority": 5,
     },
 }
 

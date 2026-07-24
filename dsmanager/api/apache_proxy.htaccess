@@ -1,0 +1,17 @@
+# Apache Reverse Proxy Configuration for api.prompt-portal-prod.raibach.net
+# This file should be deployed to: /home/jtftp@raibach.net/prompt-portal-prod.raibach.net/api/.htaccess
+
+# Enable rewrite engine
+RewriteEngine On
+
+# Proxy all requests to Flask backend on port 8001
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ http://localhost:8001/$1 [P,L]
+
+# Preserve headers for proxy
+RequestHeader set X-Forwarded-Proto "https"
+RequestHeader set X-Forwarded-Host "api.prompt-portal-prod.raibach.net"
+
+# Enable proxy preservation
+ProxyPreserveHost On

@@ -1,0 +1,285 @@
+# Grace AI - PERMISSIVE Configuration
+#
+# Use this configuration when you want to accept more sources.
+# Lower bar for entry, but still maintains quality standards.
+#
+# Best for: General knowledge gathering, exploration, learning phase
+
+evaluation_criteria:
+  attribution:
+    weight: 1.2  # Less strict
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0  # Gentler penalties
+    description: "Proper attribution of claims to verifiable sources"
+
+  anonymous_sources:
+    weight: 1.0
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Appropriate use of anonymous sources with verification"
+
+  corrections:
+    weight: 1.1
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Clear correction policy and transparent error handling"
+
+  independence:
+    weight: 1.2
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Independence from political and commercial pressures"
+
+  fairness:
+    weight: 1.0
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Fair representation of multiple viewpoints"
+
+  libel_safeguards:
+    weight: 1.1
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Strong fact-checking and legal review processes"
+
+  originality:
+    weight: 0.8  # Less important
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Original reporting with proper attribution for aggregation"
+
+  context:
+    weight: 1.1
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Complete context and nuanced analysis"
+
+  timeliness:
+    weight: 0.9
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Timely reporting with clear timestamps"
+
+  metadata:
+    weight: 0.9
+    cooperation_bonus: 3.0
+    exploitation_penalty: -4.0
+    description: "Complete metadata including bylines, dates, and sources"
+
+bucket_thresholds:
+  good:
+    min_score: 65.0  # Lower threshold
+    max_score: 100.0
+    description: "Good quality sources ready for integration"
+    auto_integrate: true  # Auto-integrate
+    requires_review: false
+
+  suspect:
+    min_score: 35.0
+    max_score: 64.9
+    description: "Questionable quality - needs human evaluation"
+    auto_integrate: false
+    requires_review: true
+    max_review_days: 30  # Longer review window
+
+  propaganda:
+    min_score: 15.0
+    max_score: 34.9
+    description: "Active manipulation detected - study but never use"
+    auto_integrate: false
+    requires_review: true
+    keep_for_analysis_days: 90
+
+  social_excluded:
+    min_score: 0.0
+    max_score: 14.9
+    description: "Below minimum standards - permanent rejection"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 60
+
+  garbage_skipped:
+    description: "Spam, malware, nonsense - immediate deletion"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 14
+
+special_rules:
+  auto_reject_patterns:
+    - "\\b(viagra|cialis|pharmacy)\\b.*\\bcheap\\b"
+    - "\\bCLICK.*BEFORE.*DELETE"
+
+  auto_flag_patterns:
+    - "\\bunverified\\b.*\\bunverified\\b.*\\bunverified\\b"
+
+  source_whitelist:
+    - "Associated Press"
+    - "Reuters"
+    - "Nature"
+    - "Science"
+
+  source_blacklist:
+    - "InfoWars"
+
+  domain_blacklist:
+    - ".ru/spam/"
+
+storage:
+  retention:
+    good: 180
+    suspect: 120
+    propaganda: 90
+    social_excluded: 60
+    garbage_skipped: 14
+
+  auto_actions:
+    archive_after_days: 180
+    suspect_max_pending_days: 30
+    suspect_default_action: "accept"  # Default to accept after review period
+    enable_auto_purge: true
+    purge_garbage_immediately: false
+    purge_excluded_after_retention: true
+
+  limits:
+    max_sources_per_bucket: 20000
+    max_total_size_gb: 200
+    warn_at_percent: 90
+
+logging:
+  level: "INFO"
+  events:
+    ingestion: true
+    evaluation: true
+    anomaly: true
+    health: true
+    audit: true
+  retention:
+    ingestion_logs: 60
+    evaluation_logs: 90
+    anomaly_logs: 90
+    health_logs: 60
+    audit_logs: 180
+    system_logs: 30
+  reports:
+    generate_daily: true
+    generate_weekly: true
+    generate_monthly: false
+  alerts:
+    anomaly_critical: true
+    anomaly_high: false
+    health_degradation: true
+    health_critical: true
+    storage_limit_warning: true
+
+health_monitoring:
+  enabled: true
+  check_interval_hours: 12  # Less frequent
+  degradation:
+    warning_threshold_percent: 8.0  # Less sensitive
+    critical_threshold_percent: 15.0
+    min_samples: 10
+  baseline:
+    rolling_window_size: 50
+    recalculate_every_hours: 48
+  correlation:
+    enabled: true
+    min_correlation: 0.8
+    min_confidence: 0.80
+  actions:
+    on_warning:
+      - "log_health_event"
+    on_critical:
+      - "log_health_event"
+      - "flag_recent_sources"
+      - "send_alert"
+
+update_schedule:
+  update_frequency: "weekly"  # More frequent updates
+  timing:
+    day_of_month: 1
+    day_of_week: 0
+    hour_of_day: 2
+  review:
+    review_period_days: 3  # Shorter review
+    min_reviewers: 1
+    require_unanimous: false
+    approval_threshold_percent: 50.0
+  integration:
+    auto_integrate_after_approval: true  # Auto-integrate
+    backup_before_integration: true
+    backup_retention_days: 30
+    rollback_window_hours: 24
+  inclusion_criteria:
+    buckets:
+      - "good"
+    min_score: 65.0
+    min_age_days: 3
+    require_curator_agreement: false
+    min_curator_count: 1
+
+curators:
+  training:
+    required: true
+    supervised_count: 5
+    guide_path: "CURATOR_GUIDE.md"
+  consistency:
+    enabled: true
+    consistent_max_std_dev: 20.0
+    inconsistent_std_dev: 35.0
+    min_evaluations: 10
+  workload:
+    max_per_day: 100
+    max_pending: 200
+    warn_at_pending: 100
+
+anomaly_detection:
+  enabled: true
+  score_anomalies:
+    std_dev_threshold: 3.0  # Less sensitive
+    min_samples: 20
+  patterns:
+    detect_behavior_changes: true
+    min_history: 5
+    detect_conflicts: false  # Don't flag conflicts
+    detect_edge_cases: false
+  response:
+    require_review_severity:
+      - "critical"
+    auto_quarantine_critical: false
+
+fine_tuning:
+  collect_training_data: true
+  collection:
+    min_score: 65.0
+    include_suspect: true  # Include more examples
+    max_examples: 20000
+  training:
+    frequency: "monthly"
+    min_new_examples: 500
+
+paths:
+  quarantine_storage: "logs/quarantine"
+  ingestion_logs: "logs/ingestion"
+  backups: "logs/backups"
+  archives: "logs/archives"
+  templates: "templates"
+  examples: "examples"
+  config_dir: "."
+  fine_tuning_dir: "fine-tuning"
+  training_data_dir: "fine-tuning/training_data"
+  models_dir: "fine-tuning/models"
+
+features:
+  enable_evaluation: true
+  enable_quarantine: true
+  enable_storage: true
+  enable_logging: true
+  enable_health_monitoring: true
+  enable_anomaly_detection: true
+  enable_auto_integration: true  # Auto-integrate
+  enable_fine_tuning: true
+  enable_ml_anomaly_detection: false
+  enable_auto_correlation: true
+  enable_predictive_scoring: false

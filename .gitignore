@@ -1,10 +1,63 @@
 # Runtime infrastructure - NOT for repo
 dsm-console/
+
+# Python virtual environment
+.venv/
+.eggs/
+*.egg-info/
+*.egg/
+__pycache__/
+src/**/__pycache__/
+*/__pycache__/
+
+# Node modules
+node_modules/
+*/node_modules/
+
 # Temporary files
 .DS_Store
-.kilo/
-*.log
-logs/
-# Runtime environments
-*.env
+*.tmp
+tmp/
+coverage/
+
+# Environment / credentials
+.env
 nvidia_credentials.env
+*.env
+zilliz-cloud-Free-01-username-password.txt
+
+# Milvus local database
+milvus.db/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Frontend build artifacts
+.vite/
+dist/
+
+# Database dumps (keep only manual exports)
+database-backup-*.sql
+db-backups/
+
+# Uploads (runtime data)
+uploads/
+
+# Config files with secrets
+config/milvus_export.json
+
+# External projects
+raibach/

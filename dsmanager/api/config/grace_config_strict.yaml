@@ -1,0 +1,311 @@
+# Grace AI - STRICT Configuration
+#
+# Use this configuration when you want maximum quality control.
+# Only the best sources make it through. High rejection rate.
+#
+# Best for: Critical applications, medical/scientific data, financial information
+
+evaluation_criteria:
+  attribution:
+    weight: 2.0  # Extra strict on sourcing
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0  # Harsher penalties
+    description: "Proper attribution of claims to verifiable sources"
+
+  anonymous_sources:
+    weight: 1.8  # Very strict - avoid anonymous sources
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Appropriate use of anonymous sources with verification"
+
+  corrections:
+    weight: 1.5
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Clear correction policy and transparent error handling"
+
+  independence:
+    weight: 1.8
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Independence from political and commercial pressures"
+
+  fairness:
+    weight: 1.5
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Fair representation of multiple viewpoints"
+
+  libel_safeguards:
+    weight: 1.8  # Critical for accuracy
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Strong fact-checking and legal review processes"
+
+  originality:
+    weight: 1.3
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Original reporting with proper attribution for aggregation"
+
+  context:
+    weight: 1.7
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Complete context and nuanced analysis"
+
+  timeliness:
+    weight: 1.2
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Timely reporting with clear timestamps"
+
+  metadata:
+    weight: 1.5
+    cooperation_bonus: 3.0
+    exploitation_penalty: -7.0
+    description: "Complete metadata including bylines, dates, and sources"
+
+bucket_thresholds:
+  good:
+    min_score: 85.0  # Higher threshold
+    max_score: 100.0
+    description: "Exceptional quality only"
+    auto_integrate: false  # Manual review even for good
+    requires_review: true
+
+  suspect:
+    min_score: 60.0  # Narrower suspect range
+    max_score: 84.9
+    description: "Questionable quality - needs human evaluation"
+    auto_integrate: false
+    requires_review: true
+    max_review_days: 7  # Faster decisions
+
+  propaganda:
+    min_score: 30.0
+    max_score: 59.9
+    description: "Active manipulation detected - study but never use"
+    auto_integrate: false
+    requires_review: true
+    keep_for_analysis_days: 365  # Keep for 1 year
+
+  social_excluded:
+    min_score: 0.0
+    max_score: 29.9
+    description: "Below minimum standards - permanent rejection"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 7  # Purge quickly
+
+  garbage_skipped:
+    description: "Spam, malware, nonsense - immediate deletion"
+    auto_integrate: false
+    requires_review: false
+    auto_purge: true
+    purge_after_days: 1  # Purge immediately
+
+special_rules:
+  auto_reject_patterns:
+    - "\\bclick here\\b.*\\bnow\\b"
+    - "\\bsHaRe BeFoRe.*\\b"
+    - "\\bWAKE UP SHEEPLE\\b"
+    - "\\bTHEY DON'T WANT YOU TO KNOW\\b"
+    - "\\bDOCTORS HATE.*\\b"
+    - "\\b(viagra|cialis|pharmacy)\\b.*\\bcheap\\b"
+    - "\\bCLICK.*BEFORE.*DELETE"
+    - "\\bYOU WON'T BELIEVE\\b"
+    - "\\bthis one weird trick\\b"
+    - "\\bBIG PHARMA\\b.*\\bHIDING\\b"
+
+  auto_flag_patterns:
+    - "\\banonymous sources?\\b.*\\bsay\\b"
+    - "\\bsome people\\b.*\\bclaim\\b"
+    - "\\bit is believed\\b"
+    - "\\brumors?\\b.*\\bsuggest\\b"
+    - "\\baccording to reports\\b"
+    - "\\ballegedly\\b.*\\ballegedly\\b"
+    - "\\bunverified\\b"
+    - "\\bunconfirmed\\b"
+
+  source_whitelist:
+    - "Nature"
+    - "Science"
+    - "Cell"
+    - "The Lancet"
+    - "New England Journal of Medicine"
+    - "JAMA"
+    - "BMJ"
+
+  source_blacklist:
+    - "InfoWars"
+    - "Natural News"
+    - "Before It's News"
+    - "YourNewsWire"
+
+  domain_blacklist:
+    - ".ru/spam/"
+    - "free-downloads-now"
+
+storage:
+  retention:
+    good: 730  # 2 years
+    suspect: 60
+    propaganda: 365
+    social_excluded: 14
+    garbage_skipped: 1
+
+  auto_actions:
+    archive_after_days: 730
+    suspect_max_pending_days: 7
+    suspect_default_action: "reject"
+    enable_auto_purge: true
+    purge_garbage_immediately: true
+    purge_excluded_after_retention: true
+
+  limits:
+    max_sources_per_bucket: 5000
+    max_total_size_gb: 50
+    warn_at_percent: 70
+
+logging:
+  level: "DEBUG"  # More verbose logging
+  events:
+    ingestion: true
+    evaluation: true
+    anomaly: true
+    health: true
+    audit: true
+  retention:
+    ingestion_logs: 180
+    evaluation_logs: 365
+    anomaly_logs: 365
+    health_logs: 180
+    audit_logs: 730
+    system_logs: 90
+  reports:
+    generate_daily: true
+    generate_weekly: true
+    generate_monthly: true
+  alerts:
+    anomaly_critical: true
+    anomaly_high: true
+    health_degradation: true
+    health_critical: true
+    storage_limit_warning: true
+
+health_monitoring:
+  enabled: true
+  check_interval_hours: 3  # More frequent checks
+  degradation:
+    warning_threshold_percent: 3.0  # More sensitive
+    critical_threshold_percent: 5.0
+    min_samples: 20
+  baseline:
+    rolling_window_size: 150
+    recalculate_every_hours: 12
+  correlation:
+    enabled: true
+    min_correlation: 0.6  # Lower threshold (more sensitive)
+    min_confidence: 0.90  # Higher confidence required
+  actions:
+    on_warning:
+      - "log_health_event"
+      - "flag_recent_sources"
+      - "send_alert"
+    on_critical:
+      - "log_health_event"
+      - "flag_recent_sources"
+      - "send_alert"
+      - "pause_auto_integration"
+
+update_schedule:
+  update_frequency: "quarterly"  # Less frequent updates
+  timing:
+    day_of_month: 1
+    day_of_week: 0
+    hour_of_day: 2
+  review:
+    review_period_days: 14  # Longer review
+    min_reviewers: 3  # More reviewers
+    require_unanimous: true  # Unanimous approval
+  integration:
+    auto_integrate_after_approval: false
+    backup_before_integration: true
+    backup_retention_days: 180
+    rollback_window_hours: 168  # 1 week rollback window
+  inclusion_criteria:
+    buckets:
+      - "good"
+    min_score: 85.0
+    min_age_days: 30  # Let sources settle longer
+    require_curator_agreement: true
+    min_curator_count: 3
+
+curators:
+  training:
+    required: true
+    supervised_count: 25  # More training
+    guide_path: "CURATOR_GUIDE.md"
+  consistency:
+    enabled: true
+    consistent_max_std_dev: 10.0  # Stricter consistency
+    inconsistent_std_dev: 20.0
+    min_evaluations: 50
+  workload:
+    max_per_day: 25  # Lower workload for quality
+    max_pending: 50
+    warn_at_pending: 25
+
+anomaly_detection:
+  enabled: true
+  score_anomalies:
+    std_dev_threshold: 1.5  # More sensitive
+    min_samples: 50
+  patterns:
+    detect_behavior_changes: true
+    min_history: 20
+    detect_conflicts: true
+    detect_edge_cases: true
+  response:
+    require_review_severity:
+      - "medium"
+      - "high"
+      - "critical"
+    auto_quarantine_critical: true
+
+fine_tuning:
+  collect_training_data: true
+  collection:
+    min_score: 85.0  # Only excellent examples
+    include_suspect: false
+    max_examples: 5000
+  training:
+    frequency: "yearly"  # Train less often
+    min_new_examples: 2000
+
+paths:
+  quarantine_storage: "logs/quarantine"
+  ingestion_logs: "logs/ingestion"
+  backups: "logs/backups"
+  archives: "logs/archives"
+  templates: "templates"
+  examples: "examples"
+  config_dir: "."
+  fine_tuning_dir: "fine-tuning"
+  training_data_dir: "fine-tuning/training_data"
+  models_dir: "fine-tuning/models"
+
+features:
+  enable_evaluation: true
+  enable_quarantine: true
+  enable_storage: true
+  enable_logging: true
+  enable_health_monitoring: true
+  enable_anomaly_detection: true
+  enable_auto_integration: false
+  enable_fine_tuning: false
+  enable_ml_anomaly_detection: false
+  enable_auto_correlation: true
+  enable_predictive_scoring: false
