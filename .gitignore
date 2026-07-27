@@ -67,3 +67,6 @@ dsmanager copy/
 *.dmg
 # Dev boot script — stays on disk only, curated off the public repo
 dsmanager/RESTART-LOCAL.sh
+
+# Local-only deploy script (postmortem notes inside) — never commit
+dsmanager/DEPLOY-NORTHFLANK.sh
