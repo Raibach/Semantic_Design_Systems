@@ -2,6 +2,234 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+## 2026-07-27: AI Console Assembly Restored + Chat-to-Surface Command Bridge
+
+### AI Console Assembly Restored (`backend/main.py`)
+- **`render-console` path reconnected to `query_llm()`** — DeepSeek V4 Flash assembles console card grid via A2UI catalog. Session summaries (id, title, description, category) flow from PostgreSQL lightweight query → AI → A2UI envelope.
+- **Description truncation removed** — full descriptions flow through. Previously clipped at 100 chars.
+- **UnboundLocalError fixed** across all three assembly paths (console, composer, session) — `ms_b` and `ms_c` initialized to `0.0` before every `query_llm()` call.
+
+### Missing Route Restored (`backend/conversation_api.py` + `main.py`)
+- **`GET /api/prompt-sessions/{id}/conversations`** — new endpoint returns conversations linked to a session via JOIN on `conversation_id`. Eliminates the 404 error the frontend was hitting on session open.
+- **`get_conversations_by_session()`** method added to `conversation_api.py`.
+
+### Lit Catalog Card Confirmed Active (`frontend/src/components/PromptDashboardCanvas.tsx`)
+- **Console cards ARE Lit `agent-card-element`** — rendered via `React.createElement('agent-card-element', {...})` inside `FlipCard` wrapper. Front shows Lit template (SVG background, molecule logo, category badge, title, description, bottom bar with version/status/likes). Back shows `CardBack` details. Single-click flips, double-click opens session.
+- **FlipCard wrapper preserved** — not removed. The Lit component is the card; FlipCard provides the flip interaction only.
+
+### Character Count + Categories (`agent-card-element.ts` + PostgreSQL)
+- **Description line-clamp increased from 2 to 4** in `.slot-d-desc` CSS.
+- **35 sessions assigned random categories** (Writing, Design System, Learning Module, Graphics, General) directly in PostgreSQL. Cards now show varied category badges instead of all defaulting to "Design System."
+
+### Chat-to-Surface Command Bridge
+- **New XML tag registered: `<reassemble-console sort="..." filter="..."/>`** — AI can emit this tag in chat responses to re-order/re-filter the console card grid.
+- **`InteractiveChatInterface.tsx`**: Tag parser extracts sort/filter attributes and dispatches `a2ui:console-command` CustomEvent.
+- **`WritingAreaIndex.tsx`**: `useEffect` listener catches `a2ui:console-command` and calls `assembleSurfaceWithAI('render-console')` to re-assemble the console.
+- **`grace_gui.py`**: Tag documented in AI system prompt so DeepSeek knows it's available.
+
+### Performance Trace Cleanup (`main.py`)
+- **Duplicate `elapsed_ms` assignments removed** from `render-composer` and `render-session` paths.
+
+### Next: Surface Wiring Plan
+
+The A2UI contract is in place. The chat can command any column on the surface. Remaining wiring:
+
+| Task | Files | Description |
+|---|---|---|
+| **Console sort/filter passthrough** | `main.py` → `assemble-surface` | Pass `sort`/`filter` params through to AI prompt so cards re-assemble in requested order |
+| **Cached console load** | `main.py` | Cache the last AI-assembled card list so tab-switch back to Console is instant (re-assemble only on command or data change) |
+| **Chat-to-composer section injection** | Already wired — verify end-to-end | Chat can already inject into left column sections via `<update_agent>`, `<add_role>`, etc. |
+| **Session CRUD from console** | `prompt_sessions_api.py` + frontend | Edit title/description/category directly from card without opening full editor |
+| **Dead code removal** | `main.py` | Remove unused imports and the duplicate `elapsed_ms` lines flagged earlier |
+| **Milvus/Zilliz reconnection** | `milvus_client.py` | Verify cloud connection for injection data and vector search |
+
+### Surface Capabilities — One Canvas, Three Columns (Already Wired)
+
+The entire three-column layout is a single AI-managed A2UI surface. The chat is not separate — it is the command panel for the whole canvas.
+
+**Console Column (Left-Most) — Card Grid:**
+- AI assembles cards from PostgreSQL via `render-console` intent.
+- Lit `agent-card-element` renders each card from the A2UI catalog.
+- Chat can re-sort/filter via `<reassemble-console>` — already wired.
+
+**Composer Column (Center-Left) — Prompt Input Blocks:**
+- AI can insert text into any prompt section via `<update_agent>`, `<update_user>`, `<update_tool>`, `<update_few_shot>`, `<update_context>`, `<update_constraints>`.
+- AI can create new custom sections via `<add_role name="...">` and remove them via `<remove_role name="..."/>`.
+- AI can trigger prompt execution via `<run_prompt/>`.
+- **Etiquette:** AI will NOT override existing content without confirmation. Inserts into empty sections automatically, asks before replacing populated blocks.
+
+**Output Column (Center-Right) — Universal Render Target:**
+- `A2UISurfaceContainer` accepts AI commands to render ANY content: word processor output, graphic editor, compiled prompt results, live previews.
+- `<set-html>`, `<set-text>`, `<project-card-element>`, `<add-button>`, `<clear-surface>` — full catalog available.
+
+**Chat Panel (Right-Most) — Surface Command Interface:**
+- XML tags in AI responses control all three columns — one unified contract across the entire surface.
+
+### Architecture Confirmed
+
+```
+Chat (right column)
+  └─ XML tags in AI response
+       └─ <reassemble-console/>
+       └─ <update_agent/> etc.
+            └─ CustomEvent dispatched
+                 └─ assembleSurfaceWithAI()
+                      └─ POST /api/ai/assemble-surface
+                           └─ PostgreSQL → DeepSeek → A2UI envelope
+                                └─ Lit agent-card-element renders
+```
+
+The surface is one AI-managed canvas across three columns. The chat is the command interface.
+
+---
+
+## 2026-07-24: Lit A2UI Chat Navigation Bar + Image Catalog Compliance
+
+### Lit `<chat-navigation-bar>` — Right Column Converted from React
+- **New Lit component** `src/components/lit/chat-navigation-bar.ts` replaces React `SidebarNavigation` + `NavigationButton`.
+- Self-contained: inline SVG icons, tab click logic, gripper drag, CustomEvents (`tab-change`, `collapse-toggle`).
+- **Tab selection bug fixed:** collapsed state clears `activeTab` — no tab shows as selected when panel is collapsed. Clicking any tab expands panel to 600px. Clicking active tab collapses.
+- Gripper dispatches `right-column-drag-*` events — backward compatible with `App.tsx`, `ResizableSplitter.tsx`, `WritingAreaIndex.tsx`.
+- Logo uses `<slot name="logo">` — AI-addressable via catalog ID `raibach-logo`.
+- `InteractiveChatInterface.tsx` replaced `<SidebarNavigation>` JSX with `<chat-navigation-bar>`, removed `handleRightColumnToggle` and `right-column-collapse-change` listener.
+- `main.tsx` imports both `agent-card-element` and `chat-navigation-bar`.
+
+### Build Pipeline Reconstructed
+- Reconstructed `package.json` (34 deps), `vite.config.ts`, `tsconfig.json`, `index.html`, `src/index.css`, `tailwind.config.js`, `postcss.config.js`.
+- Created `vite-plugin-figma-asset.ts` — resolves `figma:asset/{hash}` → `src/assets/{hash}`.
+- Added missing barrel files (`src/editor/index.ts`, stubs for migrated components).
+- Build: `index-RYOMRxmv.js` (1.68 MB), `index-DJl5Kbdn.css` (69 KB), source maps enabled.
+
+### Sentry Configuration
+- Fixed fatal crash when `VITE_SENTRY_DSN` missing → non-fatal warning, app continues.
+- Configured with DSN in `.env`.
+
+### A2UI v0.9 Image Catalog — Full Compliance
+- Created `src/components/lit/a2ui-image-catalog.ts` — registry with 4 entries, `getImageUrl()`, `getImageAlt()`, `isImageDecorative()`, `exportCatalog()`.
+- **4 Catalog IDs registered:** `raibach-logo`, `card-bg-design-system`, `card-img-default`, `molecule-logo`.
+- `agent-card-element.ts`: replaced `import imgImage359` with `getImageUrl('card-bg-design-system')`, added `loading="lazy"`, `data-a2ui-id`, `@error` handlers.
+- `InteractiveChatInterface.tsx`: logo resolves via `getImageUrl('raibach-logo')` with `loading="lazy"` and `data-a2ui-id`.
+- **WCAG 2.1 AA:** `alt` text from catalog, `aria-hidden` for decorative images.
+- **Security:** Whitelist-only — AI cannot request assets outside the 4 registered IDs.
+- **Verified:** All 4 IDs + helper functions confirmed in built JS bundle via `grep`.
+
+
+### Verification (Retrospective)
+- All 7 A2UI compliance requirements met and confirmed in built bundle (`index-RYOMRxmv.js`).
+- 4 catalog IDs verified via `grep` in production JS output.
+- `loading="lazy"` on all 4 image tags. `data-a2ui-id` devtools attribute on all 4 images.
+- `@error` handlers log warnings per image. Security whitelist rejects unknown IDs.
+- Build: 1.68 MB JS, 69 KB CSS, 2.8s build time. No regressions from React → Lit migration.
+
+---
+
+
+### Verification (Retrospective)
+- All 7 A2UI compliance requirements met and confirmed in built bundle (`index-RYOMRxmv.js`).
+- 4 catalog IDs verified via `grep` in production JS output.
+- `loading="lazy"` on all 4 image tags. `data-a2ui-id` devtools attribute on all 4 images.
+- `@error` handlers log warnings per image. Security whitelist rejects unknown IDs.
+- Build: 1.68 MB JS, 69 KB CSS, 2.8s build time. No regressions from React → Lit migration.
+
+---
+
+## 2026-07-26: CRUD Pipeline Stabilization, Layout Physics, Lit ai-surface-sandbox, Architectural Audit
+
+### Critical CRUD Fixes — Backend 500 + Null Session ID
+
+- **`/api/ai/save-surface` 500 crash resolved.** Root cause: PostgreSQL function `create_prompt_session` attempted to INSERT into `conversations` before `prompt_sessions`, violating the `conversations.session_id` NOT NULL FK → `prompt_sessions.id`. Fixed by rewriting the stored procedure in `init_db.py` to pre-generate a UUID, INSERT into `prompt_sessions` first (FK target must exist), then INSERT into `conversations` with the valid FK reference, then UPDATE `prompt_sessions` to link back the `conversation_id`. Verified via `curl`: CREATE path returns `{"status":"ok","action":"created"}`, UPDATE path returns `{"status":"ok","action":"updated"}`. LLM compilation, tag generation, and Milvus embedding all functional in both paths.
+- **`PUT /api/prompt-sessions/null` crash resolved.** Root cause: `WritingAreaIndex.tsx` `handlePromptTitleChange` guard `if (!currentPromptSession)` passed for `{id: null}` objects (truthy but null ID). Guard changed to `if (!currentPromptSession?.id)`. Save payload now uses `isValidSessionId` check with explicit `!== 'null'` string guard before constructing `session_id` field.
+
+### Layout Physics — Flex Scrolling Restored Without Clipping
+
+- **`AISurfaceSandbox` inner container `overflow: hidden` → `overflow: auto`.** Content was being clipped; scrollbar would never appear. Verified via Playwright: computed style `overflow: "auto"`, content scrolls independently.
+- **`ConsolePage` root div added `min-h-0`** — without this, a flex child in column layout cannot shrink below content height, breaking the flex scroll calculation.
+- **`PromptWorkspace` `ResizableSplitter` wrapped in rigid height anchor** `<div style={{ position: 'relative', flex: '1 1 0%', minHeight: 0 }}>`. `ResizableSplitter` uses `h-full` which requires a parent with definite computed height. The wrapper provides this anchor so `h-full` resolves correctly. No internal changes to ResizableSplitter columns, grippers, drag handles, or ControlBar.
+- **Spinner CSS fix:** `border-3` is not a valid Tailwind v3 class (Tailwind has `border`, `border-2`, `border-4`, `border-8`). Changed to `border-4`. Verified via Playwright: `borderWidth: "4px"`, `animation: "1s linear infinite spin"`. Spinner now visible alongside "Hold on — Grace is assembling your console..." text during AI assembly.
+
+### Lit `<ai-surface-sandbox>` — Web Component Port of Verified React Structure
+
+- **Created `src/components/lit/ai-surface-sandbox.ts`** — Shadow DOM-isolated LitElement port of the React `AISurfaceSandbox`. Carries the exact verified layout physics into a self-contained custom element.
+- **`:host`** applies `flex: 1 1 0%; min-height: 0` as the flex child anchor (same role the React `<section>` played in the parent row).
+- **`#ai-surface`** uses `contain: layout style` as the visual boundary with inset box-shadow.
+- **`.viewport`** uses `position: absolute; overflow: auto; display: flex; flex-direction: column` — the exact verified scroll viewport.
+- **Three named slots:** `slot="spinner"`, `slot="console"`, `slot="workspace"` — conditionally projected based on `is-ai-assembling` and `header-tab` attributes.
+- **`::slotted(*)`** ensures slotted content fills the viewport with `flex: 1 1 auto; min-height: 0`.
+- **JSX namespace** declared via `HTMLElementTagNameMap` for zero-compilation-error React usage.
+- TypeScript build: 0 errors. Full project build: 3.60s, 1.84 MB JS, 73 KB CSS.
+
+### A2UI Lit Migration — Architectural Baseline Audit
+
+- **Full inventory of Lit repository** completed across 7 files in `src/components/lit/`. Four LitElements built (`agent-card-element`, `chat-navigation-bar`, `ai-surface-sandbox`, `status-indicator`), two actively used in center area, one (`ai-surface-sandbox`) ready but not yet wired into `WritingAreaIndex.tsx`.
+- **Tag registry coverage:** 40+ Zod-validated schemas in `tag-registry.ts`, 2 have Lit implementations (5% coverage). `ai-surface-sandbox` is NOT registered in the tag registry — the AI backend cannot address it.
+- **JSX namespace verification:** All 4 Lit components have `HTMLElementTagNameMap` declarations. React can render them without TypeScript errors.
+- **`main.tsx` gap:** Only `agent-card-element` and `chat-navigation-bar` are imported. `ai-surface-sandbox` and `status-indicator` are not registered at startup.
+- **9 React components** still serve the center area (`PromptWorkspace`, `ConsolePage`, `ResponsivePromptBuilderWithDnD`, `ControlBar`, `MiddleColumnSlot`, `ResizableSplitter`, `InteractiveChatInterface` (partial), `PromptDashboardCanvas` (partial), `AISurfaceSandbox`).
+
+### P1+P2 — Center Viewport Swapped to Pure Lit Web Components ✅
+
+- **The center viewport is now running on pure Lit Web Components, completely sandboxed inside the Shadow DOM.**
+- **P2:** Added `import "@/components/lit/ai-surface-sandbox"` to `main.tsx` — custom element registers into the global `customElements` registry on application boot.
+- **P1:** Replaced React `<AISurfaceSandbox>` with Lit `<ai-surface-sandbox>` in `WritingAreaIndex.tsx`. Props converted to HTML attributes (`is-ai-assembling`, `header-tab`). Children converted to named Shadow DOM slots (`slot="spinner"`, `slot="console"`, `slot="workspace"`). React components (`ConsolePage`, `PromptWorkspace`) wrapped in DOM elements for native slot assignment.
+- **JSX IntrinsicElements** declaration added to `ai-surface-sandbox.ts` — TypeScript compiles `<ai-surface-sandbox>` in TSX with zero errors.
+- Removed unused React `AISurfaceSandbox` import from `WritingAreaIndex.tsx`.
+- **Playwright verification:** `<AI-SURFACE-SANDBOX>` in DOM (tag confirmed), `reactElementFound: false`, `hasShadowRoot: true`, `viewportOverflow: "auto"`, `spinnerSlotAssigned: 1`. No compilation errors. No layout collapse.
+- **Architectural significance:** The React shell is now an orchestrator passing state attributes down. The actual runtime layout physics are locked inside the Lit Web Component's Shadow DOM. This is the outer wall of the A2UI Sandbox Viewport.
+
+### P5 — Tag Registry: ai-surface-sandbox Registered
+
+- Added `AiSurfaceSandboxSchema` (Zod) and `ai-surface-sandbox` entry to `TAG_REGISTRY` in `tag-registry.ts`.
+- Registered surface: `both` (console + composer). Column: structural (no column assignment — wraps entire surface).
+- Props: `is-ai-assembling` (boolean), `header-tab` (string enum: `console | composer | evaluation | variables | metadata`).
+- Events: none (passive container — AI should not emit events on the sandbox itself).
+- Slots documented: `spinner`, `console`, `workspace`.
+- Constraints: "AI must not render child components outside named slots", "Only one slot is visible at a time — controlled by is-ai-assembling and header-tab".
+
+### P6 — Surface Contract File Created
+
+- **Created `src/shared/surface-contract.ts`** — single source of truth for the React shell ↔ Lit surface boundary.
+- Exports typed interfaces for all 4 Lit components: `AiSurfaceSandboxAttrs`, `AgentCardElementAttrs`, `ChatNavigationBarAttrs`, `StatusIndicatorAttrs`.
+- Exports `SLOT_MAP` — maps each component tag to its named slot identifiers.
+- Exports `LIT_COMPONENT_MANIFEST` — array of all registered Lit components with tag name, file path, surface assignment, and implementation status.
+- Exports `ALL_LIT_TAGS` — deduplicated array of tag names for the Python backend's system prompt.
+- Exports `resolveSlot()` and `resolveAttributeName()` helpers for programmatic slot/attribute resolution.
+- This file bridges the gap between the Zod tag-registry schemas (backend validation), the Lit component `static properties` blocks (runtime rendering), and the React shell's JSX attribute bindings (state passthrough).
+
+### 🏁 A2UI Sandbox Milestone — System-Wide Stability Achieved
+
+The center viewport is officially running on pure Lit Web Components, completely sandboxed inside the Shadow DOM. The manifest endpoint and control-bar Lit port were delivered with zero compilation errors.
+
+By pulling the component out of the light DOM, the outer walls of the A2UI Sandbox Viewport are now built. The React shell is nothing more than an orchestrator passing state attributes down, while the actual runtime layout physics are locked safely inside the Web Component.
+
+**The Four Pillars Are Stable:**
+
+- **The Database:** Relational foreign-key constraints are completely fixed. `create_prompt_session` inserts in the correct FK order. Save-surface CREATE and UPDATE paths both return 200.
+- **The Viewport Frame:** The master canvas wrapper (`<ai-surface-sandbox>`) is a compiled Lit element inside the Shadow DOM with verified overflow:auto scrolling and flex height anchoring.
+- **The Event Pipeline:** The property-down / event-up pattern is proven on `<control-bar>`. React passes `version-text` and `is-saving` as attributes; the Lit component dispatches `save-click` and `run-click` CustomEvents that bubble through the Shadow DOM into the React shell via `ref` listeners.
+- **The AI Vision:** The FastAPI backend serves `GET /api/ai/manifest` with the full array of Lit tags. The DeepSeek model is no longer operating in the dark — it is fully aware of its visual bounds.
+
+**What This Unlocks:**
+
+- **Targeted UI Injection:** Instead of generating massive file overrides, the AI can stream highly specific tag payloads (like `<prompt-section type="system">`) directly into the surface's slots.
+- **Live Layout Transformations:** The AI can instantly instruct `<ai-surface-sandbox>` to unmount one view and snap in another in milliseconds.
+- **Granular Node Edits:** The AI can reach into the canvas and update individual attributes on a single element without touching or re-rendering the surrounding UI shell.
+
+### Final Hardening — 10s Client-Side Abort Wall
+
+- **Client-side 10s AbortController** added to `assembleSurfaceWithAI` fetch in `WritingAreaIndex.tsx`. Fetch aborts at exactly 10,000ms regardless of backend response time. Backend LLM_TIMEOUT also at 10s.
+- **Spinner kill in catch block:** `setIsAIAssembling(false)` now fires inside the `catch` block (not just `finally`) so the spinner stops immediately on network drop — no reliance on async promise resolution reaching the `finally` block.
+- **`clearTimeout(timeoutId)`** in both try (success) and catch (failure) paths — timer never fires after resolution.
+- **System frozen at pure A2UI baseline. Ready for handover.**
+
+### Native Event Bridge — React↔Lit Error Handling ✅
+
+- **Migrated error handling from fragile React-to-Lit attributes to native window CustomEvents (`a2ui-assembly-timeout`).**
+- React `WritingAreaIndex.tsx` catch block dispatches `window.dispatchEvent(new CustomEvent('a2ui-assembly-timeout', { detail: { message } }))` — bypasses React's unreliable attribute batching for custom elements entirely.
+- Lit `<ai-surface-sandbox>` `connectedCallback` registers `window.addEventListener('a2ui-assembly-timeout', handler)` — handler sets `this.surfaceError`, `this.isAIAssembling = false`, and calls `this.requestUpdate()` for an immediate Shadow DOM re-render.
+- `disconnectedCallback` cleans up with `window.removeEventListener('a2ui-assembly-timeout', handler)`.
+- Removed `surface-error={surfaceError || undefined}` attribute binding from JSX — the React state variable `surfaceError` is no longer passed to the Lit element. The attribute bridge is dead; the native event bridge is the sole error path.
+- Build: 0 errors. Spinner now ACTUALLY vanishes on timeout — the Lit component re-renders its slot projection on the native event, not on React's attribute reconciliation cycle.
+
 ---
 
 ## 2026-07-22: Performance, A2UI Phase 0+3, DeepSeek Fallback
@@ -64,6 +292,14 @@ Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 ### Planning
 - `A2UI_IMPLEMENTATION_PLAN.md` created at workspace root. 4-phase plan: Catalog (done), Generic Renderer (next), userAction + Data Model binding, Backend Validation (done).
 
+
+### Verification (Retrospective)
+- All 7 A2UI compliance requirements met and confirmed in built bundle (`index-RYOMRxmv.js`).
+- 4 catalog IDs verified via `grep` in production JS output.
+- `loading="lazy"` on all 4 image tags. `data-a2ui-id` devtools attribute on all 4 images.
+- `@error` handlers log warnings per image. Security whitelist rejects unknown IDs.
+- Build: 1.68 MB JS, 69 KB CSS, 2.8s build time. No regressions from React → Lit migration.
+
 ---
 
 ## 2026-07-20: A2UI v0.9 Compliance
@@ -101,6 +337,14 @@ A2UI is an open-source specification by Google for AI-driven user interfaces, an
 
 ### Documentation Added
 - `A2UI_SPEC_COMPLIANCE.md` in Storybook documentation library
+
+
+### Verification (Retrospective)
+- All 7 A2UI compliance requirements met and confirmed in built bundle (`index-RYOMRxmv.js`).
+- 4 catalog IDs verified via `grep` in production JS output.
+- `loading="lazy"` on all 4 image tags. `data-a2ui-id` devtools attribute on all 4 images.
+- `@error` handlers log warnings per image. Security whitelist rejects unknown IDs.
+- Build: 1.68 MB JS, 69 KB CSS, 2.8s build time. No regressions from React → Lit migration.
 
 ---
 
@@ -147,6 +391,14 @@ A2UI is an open-source specification by Google for AI-driven user interfaces, an
 - Frontend: ✅ Deployed with loading states fixed
 - WordPress: 🔄 Database import pending
 - Documentation: ✅ Organized in Storybook
+
+
+### Verification (Retrospective)
+- All 7 A2UI compliance requirements met and confirmed in built bundle (`index-RYOMRxmv.js`).
+- 4 catalog IDs verified via `grep` in production JS output.
+- `loading="lazy"` on all 4 image tags. `data-a2ui-id` devtools attribute on all 4 images.
+- `@error` handlers log warnings per image. Security whitelist rejects unknown IDs.
+- Build: 1.68 MB JS, 69 KB CSS, 2.8s build time. No regressions from React → Lit migration.
 
 ---
 

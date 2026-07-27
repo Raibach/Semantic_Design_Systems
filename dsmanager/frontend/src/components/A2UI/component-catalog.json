@@ -1,0 +1,481 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json",
+  "title": "Raibach Prompt Composer Catalog",
+  "description": "Custom A2UI v0.9.1 catalog for the Raibach Design System Lifecycle Management platform. 14 trusted components — 6 from the A2UI Basic Catalog plus 8 project-specific Lit/React components. Agent can only render components from this allowlist.",
+  "catalogId": "https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json",
+  "components": {
+    "Text": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "properties": {
+            "component": { "const": "Text" },
+            "text": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The text content to display. Simple Markdown supported (no HTML, images, or links)."
+            },
+            "variant": {
+              "type": "string",
+              "description": "A hint for the base text style.",
+              "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"],
+              "default": "body"
+            }
+          },
+          "required": ["component", "text"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Image": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "properties": {
+            "component": { "const": "Image" },
+            "url": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The URL of the image. Must be a registered catalog ID from the A2UI Image Catalog (raibach-logo, card-bg-design-system, card-img-default, molecule-logo)."
+            },
+            "description": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Accessibility text for the image (WCAG 2.1 AA required)."
+            },
+            "fit": {
+              "type": "string",
+              "enum": ["contain", "cover", "fill", "none", "scaleDown"],
+              "default": "cover"
+            },
+            "variant": {
+              "type": "string",
+              "enum": ["icon", "avatar", "smallFeature", "mediumFeature", "largeFeature", "header"],
+              "default": "mediumFeature"
+            }
+          },
+          "required": ["component", "url"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Row": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "A layout component that arranges its children horizontally.",
+          "properties": {
+            "component": { "const": "Row" },
+            "children": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Defines the children by ID reference. Use explicitList for fixed children or template for data-driven lists."
+            },
+            "justify": {
+              "type": "string",
+              "enum": ["center", "end", "spaceAround", "spaceBetween", "spaceEvenly", "start", "stretch"],
+              "default": "start"
+            },
+            "align": {
+              "type": "string",
+              "enum": ["start", "center", "end", "stretch"],
+              "default": "stretch"
+            }
+          },
+          "required": ["component", "children"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Column": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "A layout component that arranges its children vertically.",
+          "properties": {
+            "component": { "const": "Column" },
+            "children": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Defines the children by ID reference."
+            },
+            "justify": {
+              "type": "string",
+              "enum": ["start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly", "stretch"],
+              "default": "start"
+            },
+            "align": {
+              "type": "string",
+              "enum": ["center", "end", "start", "stretch"],
+              "default": "stretch"
+            }
+          },
+          "required": ["component", "children"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Card": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "properties": {
+            "component": { "const": "Card" },
+            "child": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentId",
+              "description": "The ID of the single child component to be rendered inside the card."
+            }
+          },
+          "required": ["component", "child"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "Button": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "properties": {
+            "component": { "const": "Button" },
+            "child": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentId",
+              "description": "The ID of the child component (typically a Text for the label)."
+            },
+            "variant": {
+              "type": "string",
+              "enum": ["default", "primary", "borderless"],
+              "default": "default"
+            },
+            "action": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/Action"
+            }
+          },
+          "required": ["component", "child", "action"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "agent-card": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Lit web component <agent-card-element>. Four-slot prompt card (278x359px) with 5 category themes. Pixel-identical to React DesignCard. Renders model name (Slot A), category label (Slot B), timestamp badge (Slot C), and title (Slot D). Registered as custom element: agent-card-element.",
+          "properties": {
+            "component": { "const": "agent-card" },
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Unique identifier for the card (maps to prompt session ID)."
+            },
+            "title": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Card title displayed in Slot D (18px bold)."
+            },
+            "category": {
+              "type": "string",
+              "description": "Content category. Determines theme colors and model label.",
+              "enum": ["Design System", "Learning Module", "Graphics", "Writing", "Coding"],
+              "default": "Design System"
+            },
+            "description": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Card description text."
+            },
+            "status": {
+              "type": "string",
+              "enum": ["Active", "Draft", "Archived"],
+              "default": "Active"
+            },
+            "version": {
+              "type": "number",
+              "description": "Current version number displayed in bottom bar.",
+              "default": 1
+            },
+            "likes": {
+              "type": "number",
+              "default": 0
+            }
+          },
+          "required": ["component", "id", "title"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "featured-card": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Featured card displayed prominently on the console homepage. Used for team showcases and highlighted content.",
+          "properties": {
+            "component": { "const": "featured-card" },
+            "subtitle": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Subtitle text (e.g., 'Featured Team')."
+            },
+            "headline": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Main headline text."
+            },
+            "teamHandle": {
+              "type": "string",
+              "description": "Team handle (e.g., '@design-systems')."
+            },
+            "teamName": {
+              "type": "string",
+              "description": "Display name of the team."
+            }
+          },
+          "required": ["component", "subtitle", "headline"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "filter-pill": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Category filter pill for the console homepage grid. Toggles visibility of cards by category.",
+          "properties": {
+            "component": { "const": "filter-pill" },
+            "category": {
+              "type": "string",
+              "description": "The category this pill filters for.",
+              "enum": ["Design System", "Learning Module", "Graphics", "Writing", "Coding", "General"]
+            },
+            "label": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Display label for the pill."
+            },
+            "active": {
+              "type": "boolean",
+              "description": "Whether this filter is currently active.",
+              "default": false
+            }
+          },
+          "required": ["component", "category", "label"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "search-bar": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Search input for filtering console cards by text query.",
+          "properties": {
+            "component": { "const": "search-bar" },
+            "placeholder": {
+              "type": "string",
+              "description": "Placeholder text shown when empty.",
+              "default": "Search\u2026"
+            },
+            "value": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "Current search query value.",
+              "default": ""
+            }
+          },
+          "required": ["component"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "prompt-section": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "A section within the prompt composer (left column). Each section has a type that determines its role in the prompt architecture. Used in ResponsivePromptBuilderWithDnD for drag-and-drop prompt assembly.",
+          "properties": {
+            "component": { "const": "prompt-section" },
+            "type": {
+              "type": "string",
+              "description": "The architectural role of this section.",
+              "enum": ["system-role", "user-role", "tool-call", "few-shot", "constraints"]
+            },
+            "content": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The content/text of the section."
+            },
+            "order": {
+              "type": "number",
+              "description": "Display order within the section list."
+            },
+            "state": {
+              "type": "string",
+              "enum": ["idle", "editing", "saving", "error"],
+              "default": "idle"
+            }
+          },
+          "required": ["component", "type", "content", "order"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "output-panel": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "The output panel in the middle column that displays AI-generated content. Shows compiled prompt output, evaluation results, and streaming content.",
+          "properties": {
+            "component": { "const": "output-panel" },
+            "content": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The output content (Markdown supported)."
+            },
+            "status": {
+              "type": "string",
+              "enum": ["empty", "streaming", "complete", "error"],
+              "default": "empty"
+            },
+            "model": {
+              "type": "string",
+              "description": "The AI model that generated this output."
+            },
+            "tokens": {
+              "type": "number",
+              "description": "Token count for the generated output."
+            }
+          },
+          "required": ["component", "content"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "version-trace": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Version history trace component. Displays a timeline of prompt versions with comparison capability. Replaces the React TraceTree component.",
+          "properties": {
+            "component": { "const": "version-trace" },
+            "sessionId": {
+              "type": "string",
+              "format": "uuid",
+              "description": "The prompt session this trace belongs to."
+            },
+            "activeVersion": {
+              "type": "number",
+              "description": "The currently active/selected version number."
+            }
+          },
+          "required": ["component", "sessionId"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "chat-navigation-bar": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Lit web component <chat-navigation-bar>. Right column navigation with tabs: Chat, Trace, Variables, Approval. Features gripper drag resize, collapse/expand, and logo slot. Replaces React SidebarNavigation + NavigationButton.",
+          "properties": {
+            "component": { "const": "chat-navigation-bar" },
+            "activeTab": {
+              "type": "string",
+              "description": "The currently active tab.",
+              "enum": ["chat", "trace", "variables", "approval"],
+              "default": "chat"
+            },
+            "collapsed": {
+              "type": "boolean",
+              "description": "Whether the navigation panel is collapsed.",
+              "default": false
+            }
+          },
+          "required": ["component"]
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  },
+  "$defs": {
+    "CatalogComponentCommon": {
+      "type": "object",
+      "properties": {
+        "weight": {
+          "type": "number",
+          "description": "The relative weight of this component within a Row or Column (CSS flex-grow). Only valid for direct children of Row or Column."
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "primaryColor": {
+          "type": "string",
+          "description": "Primary brand color in hex format.",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "iconUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL for an image identifying the agent or tool."
+        },
+        "agentDisplayName": {
+          "type": "string",
+          "description": "Display name for the agent or tool that created the surface."
+        }
+      },
+      "additionalProperties": true
+    },
+    "anyComponent": {
+      "oneOf": [
+        { "$ref": "#/components/Text" },
+        { "$ref": "#/components/Image" },
+        { "$ref": "#/components/Row" },
+        { "$ref": "#/components/Column" },
+        { "$ref": "#/components/Card" },
+        { "$ref": "#/components/Button" },
+        { "$ref": "#/components/agent-card" },
+        { "$ref": "#/components/featured-card" },
+        { "$ref": "#/components/filter-pill" },
+        { "$ref": "#/components/search-bar" },
+        { "$ref": "#/components/prompt-section" },
+        { "$ref": "#/components/output-panel" },
+        { "$ref": "#/components/version-trace" },
+        { "$ref": "#/components/chat-navigation-bar" }
+      ],
+      "discriminator": {
+        "propertyName": "component"
+      }
+    }
+  }
+}

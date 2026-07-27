@@ -2,7 +2,7 @@
 # RESTART-LOCAL.sh — Local dev restart. DO NOT DELETE. DO NOT BYPASS.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BACKEND="$ROOT/prompt-composer-console/backend"
+BACKEND="$ROOT/backend"
 PORT=5173
 
 # --- 1. Check .env ---
@@ -104,21 +104,28 @@ export $(grep -v '^#' "$BACKEND/.env" | grep -v '^\s*$' | xargs)
 set +a
 
 # --- 7. Start server ---
-echo "🚀 Starting on port $PORT..."
+# Detach from terminal with nohup + log redirect so print() never hits
+# EIO (Errno 5) when the launching terminal is closed. Uvicorn's stdout
+# and stderr go to a timestamped log file — tail it to watch live output.
+UVICORN_LOG="$BACKEND/logs/uvicorn-$(date +%Y%m%d-%H%M%S).log"
+echo "🚀 Starting on port $PORT (logs → $UVICORN_LOG)..."
 cd "$BACKEND"
-.venv/bin/uvicorn main:app --host 0.0.0.0 --port $PORT &
+nohup .venv/bin/uvicorn main:app --host 0.0.0.0 --port $PORT \
+    > "$UVICORN_LOG" 2>&1 &
 UVICORN_PID=$!
 sleep 2
 
 # --- 8. Verify server is running ---
 if ! kill -0 $UVICORN_PID 2>/dev/null; then
-    echo "❌ Error: Server failed to start. Check logs above."
+    echo "❌ Error: Server failed to start. Check $UVICORN_LOG"
     exit 1
 fi
 
 # Verify it responds
 if curl -sf http://localhost:$PORT/ > /dev/null 2>&1; then
     echo "✅ http://localhost:$PORT — API + Frontend + AI live (PID $UVICORN_PID)"
+    echo "   Logs: tail -f $UVICORN_LOG"
 else
     echo "⚠️  Server started (PID $UVICORN_PID) but may not be responding yet. Check http://localhost:$PORT"
+    echo "   Logs: tail -f $UVICORN_LOG"
 fi

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>frontend</title>
+  </head>
+  <body>
+    <script>
+      // Redirect legacy browser-history URLs to hash-based equivalents.
+      // Example: /prompts/123 → /#/prompts/123
+      // Only runs on production; local dev uses Vite's own routing.
+      (function() {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') return;
+        var path = window.location.pathname;
+        if (path && path !== '/' && path.indexOf('/#/') !== 0) {
+          var hash = '/#' + path + window.location.search + window.location.hash;
+          window.location.replace(hash);
+        }
+      })();
+    </script>
+    <script>
+      // Monkey-patch fetch to add ngrok skip header for API calls through ngrok tunnel
+      (function() {
+        var origFetch = window.fetch;
+        window.fetch = function(url, opts) {
+          opts = opts || {};
+          opts.headers = opts.headers || {};
+          if (typeof url === 'string' && url.includes('ngrok-free.dev')) {
+            if (opts.headers instanceof Headers) {
+              opts.headers.set('ngrok-skip-browser-warning', 'true');
+            } else {
+              opts.headers['ngrok-skip-browser-warning'] = 'true';
+            }
+          }
+          return origFetch.call(this, url, opts);
+        };
+      })();
+    </script>
+    <div id="root"></div>
+    <!-- Runtime diagnostic: shows what the server returns for the app script (no external server, no CORS) -->
+    <script>
+    (function(){
+      var scripts = document.getElementsByTagName('script');
+      var appScript = null;
+      for (var i = 0; i < scripts.length; i++) {
+        if (scripts[i].src) { appScript = scripts[i]; break; }
+      }
+      if (!appScript) return;
+      var url = appScript.src;
+      fetch(url, { method: 'HEAD' }).then(function(r) {
+        var ct = r.headers.get('Content-Type') || '';
+        var diag = { url: url, status: r.status, contentType: ct, isHtml: ct.indexOf('text/html') >= 0 };
+        window.__SCRIPT_LOAD_DIAG = diag;
+        if (diag.isHtml || r.status !== 200) {
+          var div = document.createElement('div');
+          div.id = 'script-load-diag';
+          div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;padding:12px;font-family:monospace;font-size:12px;z-index:99999;white-space:pre-wrap;';
+          div.textContent = '[SCRIPT LOAD DIAG] ' + url + '\nStatus: ' + r.status + '  Content-Type: ' + ct + (diag.isHtml ? '\n\nSERVER IS SENDING HTML FOR JS — fix .htaccess or parent server config so this URL returns application/javascript, not index.html.' : '');
+          document.body.insertBefore(div, document.body.firstChild);
+        }
+      }).catch(function(e) {
+        window.__SCRIPT_LOAD_DIAG = { url: url, error: String(e) };
+        var div = document.createElement('div');
+        div.id = 'script-load-diag';
+        div.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;padding:12px;font-family:monospace;font-size:12px;z-index:99999;';
+        div.textContent = '[SCRIPT LOAD DIAG] Fetch failed for ' + url + ': ' + e;
+        document.body.insertBefore(div, document.body.firstChild);
+      });
+    })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

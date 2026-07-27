@@ -42,5 +42,11 @@ database-backup-*.sql
 # Uploads (runtime data)
 uploads/
 
+# Archived / deprecated files
+_old/
+
+# Uploads (runtime data)
+uploads/
+
 # Config files with secrets
 config/milvus_export.json
