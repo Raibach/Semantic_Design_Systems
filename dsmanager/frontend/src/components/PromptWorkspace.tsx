@@ -506,23 +506,9 @@ export function PromptWorkspace({
       </ResizableSplitter>
       </div>
 
-      {/* Control Bar — Lit Web Component (P3: ported from React, CustomEvents for shell integration) */}
-      <control-bar
-        version-text={session ? `Saved: ${session.title}` : "Editing Version 1"}
-        is-saving={isSaving ? '' : undefined}
-        ref={(el) => {
-          if (!el) return;
-          // Attach CustomEvent listeners once (Lit dispatches save-click, run-click)
-          const handleSave = () => onSave(compiledOutput);
-          const handleRunClick = () => handleRun();
-          el.addEventListener('save-click', handleSave);
-          el.addEventListener('run-click', handleRunClick);
-          (el as any).__cleanup = () => {
-            el.removeEventListener('save-click', handleSave);
-            el.removeEventListener('run-click', handleRunClick);
-          };
-        }}
-      />
+      {/* Bottom surface pad — reserved ~40px strip (readout area, no controls) */}
+      <div style={{ height: 40, flexShrink: 0 }} aria-hidden="true" />
+
     </div>
   );
 }

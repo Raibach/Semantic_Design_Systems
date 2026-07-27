@@ -26,8 +26,35 @@ An **A2UI (Agent-to-User Interface) workspace** — a single, stable three-colum
 |-----------|---------|
 | **Unified assembly endpoint** | `POST /api/ai/assemble-surface` — the ONLY surface path. Intents: `render-console`, `render-composer`, `render-session:{id}` |
 | **Envelope** | Array of protocol messages — `createSurface`, `updateComponents`, `updateDataModel` — each stamped `"version": "v0.9.1"`, `catalogId` = catalog `$id` |
-| **Trusted catalog** | `frontend/src/components/A2UI/component-catalog.json` — **20 components** (6 A2UI Basic + 14 project-specific, `ChildList`/`DynamicString` typed per validator rules) |
+| **Trusted catalog** | `frontend/src/components/A2UI/component-catalog.json` — **24 components** (6 A2UI Basic + 18 project-specific, `ChildList`/`DynamicString` typed per validator rules) |
 | **Zero-trust validation** | Catalog loads at startup (fail-fast); `validate_a2ui_components()` guards every return point; unknown components → **HTTP 503 `VALIDATION_FAILED`** (spec error format) |
+
+---
+
+## Repository Layout (post-2026-07-27 refactor)
+
+The backend was modularized from a single 4,323-line `main.py` into focused files (zero behavior change; all 79 endpoints verified by AST route parity, compile checks, and a live boot):
+
+```
+backend/
+├── main.py            # 135 lines — app setup, startup, router includes, SPA serving
+├── deps.py            # Shared helpers: constants, A2UI catalog loader, user helpers
+├── services.py        # Database service startup (all 5 APIs)
+└── routes/            # 11 topic routers
+    ├── conversations.py   # Conversation + message CRUD, surface state, tags
+    ├── projects.py        # Project CRUD
+    ├── prompt_sessions.py # Packages, versions, permissions, suggestions, context
+    ├── memory.py          # Memory storage/update/delete (dictation)
+    ├── ai.py              # Manifest, assemble-surface, confirm-exit, save-surface, audit
+    ├── teacher.py         # Teacher query, model ensure, transcribe stub
+    ├── misc.py            # Health, news, PDF, memory recall, reasoning, source eval, train
+    ├── figma.py           # Figma API proxy endpoints
+    ├── milvus.py          # Zilliz/Milvus info, collections, vectors, save, versions
+    ├── agent_rpc.py       # JSON-RPC 2.0 agent integration
+    └── files.py           # Documentation file read/write/list
+```
+
+**Local dev:** `bash RESTART-LOCAL.sh` (unchanged, compatible). **Production:** Northflank `prompt-composer-console` (us-central) — deploy via git push to `main` (CI/CD) or the local `DEPLOY-NORTHFLANK.sh` runbook (gitignored).
 | **No executable code** | `eval()` deleted; raw `innerHTML` injection blocked; buttons dispatch declarative `a2ui:action` events only |
 | **No fallbacks** | AI offline or invalid JSON → HTTP 503 with the real error. Fail hard, fail loud |
 | **Chat = command interface** | XML tags in AI responses (`<update_agent>`, `<add_role>`, `<reassemble-console>`) bridge to surface commands via CustomEvents |
@@ -74,7 +101,7 @@ Docker on Northflank (see `Dockerfile`). The backend serves the committed `front
 ## Roadmap
 
 - **Phase 3 (next):** generic adjacency-list renderer + JSON Pointer data binding (`DynamicString` resolution, `ChildList` templates, client→server `action` messages) — replaces the hand-parsed view logic
-- **Phase 4:** remaining READ-ME rewrites, changelog dedup, `main.py` router split
+- **Phase 4:** remaining READ-ME rewrites, changelog dedup
 
 ---
 

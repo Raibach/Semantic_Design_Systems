@@ -2,6 +2,34 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+
+## 2026-07-27 (PM5): Backend Modularization — 4,323-Line Monolith → 14 Focused Files + Legacy Purge
+
+**Focus of this release: file refactoring for developer review. Zero behavior change — verified three independent ways.**
+
+### New structure
+- `backend/main.py`: **4,323 → 135 lines** — app setup, startup, router includes, SPA serving only
+- New `backend/deps.py` — shared helpers (constants, A2UI catalog loader, user helpers)
+- New `backend/services.py` — database service startup (all 5 APIs)
+- New `backend/routes/` — 11 topic modules: `conversations`, `projects`, `prompt_sessions`, `memory`, `ai`, `teacher`, `misc`, `figma`, `milvus`, `agent_rpc`, `files`
+
+### Verification (all passing)
+- **Route parity (AST diff):** all 79 endpoints accounted for — only 3 debug/test pages dropped (`/api/debug/filesystem`, `/test`, `/api/debug-api-state`)
+- **Compile:** every file py_compiles clean; frontend `tsc --noEmit` exit 0
+- **Live boot:** app starts on the new structure, A2UI catalog loads (24 components), all routes register; `/api/health` → `{database: connected, milvus: connected}`
+
+### Legacy cleanup (same pass)
+- `backend/main.py`: dead CORS origins removed (ngrok, trycloudflare, SiteGround, Railway) — localhost dev origins only
+- Deleted `config/railway.json` + `config/render.yaml` (pre-Northflank deploy configs)
+- `frontend/index.html`: 3 legacy scripts removed — hash redirect (conflicted with BrowserRouter), ngrok fetch patch, SiteGround-era script-load diagnostic
+- `PromptWorkspace.tsx`: duplicate AI-inserted Save/Run status row removed; the original control row (undo + Save Template + RUN) is the single control set; 40px bottom surface pad reserved
+- A2UI catalog: **20 → 24 components** (`control-bar`, `add-section-button`, `status-readout`, `token-cost-readout` added in catalog schema style; `anyComponent.oneOf` union complete)
+
+### Deploy/ops notes
+- Production (Northflank `prompt-composer-console`, us-central): session-conversations 404 fixed (`/api/sessions/...` → `/api/prompt-sessions/...`); crash-loop root cause found and fixed (Docker image was missing `frontend/src`, which the backend's A2UI catalog boot check requires)
+- New `DEPLOY-NORTHFLANK.sh` (gitignored, local-only): one-command build → push → build → deploy → verify, with full postmortem notes (root Dockerfile requirement, `frontend/src` COPY, no-SHA builds, override pitfalls)
+- `RESTART-LOCAL.sh` unchanged and compatible with the modular backend
+
 ## 2026-07-27 (PM4): Package Architecture R1–R4 — Identity Honesty, Package-First Composer, Contributors API, Trace-Spine Correction
 
 All four items **live-verified** against the running backend and the local `railway` DB.
