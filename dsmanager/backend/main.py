@@ -4075,6 +4075,16 @@ async def list_files(
 # ── Serve production frontend (SPA) ────────────────────────────────────
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.isdir(frontend_dist):
+    # DEV PHASE: hard no-cache everywhere — index, hashed assets, API, manifest.
+    # Long loads are expected; stale bytes are never acceptable.
+    @app.middleware("http")
+    async def no_cache_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     # Serve static assets (JS, CSS, images)
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 

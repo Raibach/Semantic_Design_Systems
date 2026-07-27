@@ -2,6 +2,32 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+## 2026-07-27 (PM3): Navigation Fix via Stale-Build Diagnosis + Honest Console States + Dev No-Cache
+
+### Root Cause of "Composer click reloads Console" — STALE DIST BUNDLE
+- The backend serves `frontend/dist` (committed build). The P2-3 backend change removed the non-spec `surface` key from envelopes, but the **old JS bundle still read `updateComponents.surface`** — missing → defaulted to `'console'` for every response → every tab click re-rendered the console.
+- **Fix: rebuilt `frontend/dist`** (`index-CyV9hplg.js`, 3.31s). With the P2-3 data-model inference in the new bundle, navigation is correct.
+- **Browser-verified (PIN auth, fresh profile):** Console → cards grid (real DB cards) → Composer → workspace sections + chat inside surface → Console → re-assembled. Round trip clean.
+
+### Honest Console States (`ConsolePage.tsx`) — Dishonest Fallback Removed
+- Deleted the amber **"No Workflows Found / Create your first workflow / Refresh(reload)"** box. It conflated *still assembling* (`cards === null`) with *assembled, zero packages* (`cards === []`) and pretended to be meaningful.
+- **RULE #3 (new):** `null` → "Waiting for AI assembly…" spinner. Never claims empty while the AI event hasn't arrived.
+- **RULE #4 (new):** `[]` → honest zero state: "AI assembled — 0 packages" **with the queried identity displayed** (`uid.slice(0,8)…slice(-4)`) + note that an identity mismatch may be the cause + two honest intents: **Create in Composer** (composer intent) and **Re-assemble** (dispatches `a2ui:console-command` — AI command, **no `window.location.reload()`**).
+- Error-state Retry button also moved off page-reload onto the same A2UI re-assembly event.
+- Root cause of the user's empty console confirmed live: fresh browser profile (no stored user id → `…000001`) sees all 35 packages; the user's browser held a stale stored UUID owning zero.
+
+### Dev-Phase Cache-Bust (`backend/main.py`)
+- Global `no_cache_headers` middleware: `Cache-Control: no-cache, no-store, must-revalidate` + `Pragma: no-cache` + `Expires: 0` on **every** response (index, hashed assets, API, manifest). Long loads accepted; stale bytes never. Verified live via response headers.
+
+### Verification
+- `tsc --noEmit` exit 0; `py_compile` OK; health `{"database":"connected","milvus":"connected"}`; browser round trip Console↔Composer clean; fresh profile renders 35-package console.
+
+### Next
+- **R2:** package-first composer (draft session row on mount — the new composer's chat showed "Select a conversation…" because no package id exists pre-save; R2 fixes scoping from keystroke one).
+- **R1:** identity honesty in header. **R3:** contributors API. **R4:** trace spine.
+
+---
+
 ## 2026-07-27 (PM2): Phase 2 — Pure A2UI v0.9.1 Restoration — COMPLETE ✅
 
 All 8 remediation items (P2-1…P2-8) from `READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md` executed and **verified live**. The system is now honestly A2UI v0.9.1: zero-trust catalog validation is real, envelopes are spec-shaped, and no executable code paths remain.

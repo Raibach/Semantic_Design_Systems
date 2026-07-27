@@ -7,6 +7,16 @@
  * If AI fails, show the error. If no data, show "Waiting for AI Event".
  */
 import { Frame29 } from "@/components/PromptDashboardCanvas";
+import { getStoredUserId } from "@/services/authService";
+
+/**
+ * A2UI re-assembly request — dispatched when the user asks for a fresh
+ * assembly. WritingAreaIndex listens and re-runs the render-console intent
+ * through the AI. No webpage reloads — navigation is an AI command.
+ */
+const requestReassembly = () => {
+  window.dispatchEvent(new CustomEvent('a2ui:console-command', { detail: { reason: 'user-retry' } }));
+};
 
 interface ConsolePageProps {
   onOpenPrompt?: (sessionId: string) => void;
@@ -48,7 +58,7 @@ export default function ConsolePage({
           </div>
           <div className="text-center">
             <button
-              onClick={() => window.location.reload()}
+              onClick={requestReassembly}
               className="px-6 py-2 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors"
             >
               Retry Assembly
@@ -59,19 +69,48 @@ export default function ConsolePage({
     );
   }
 
-  // ✅ STRICT A2UI RULE #3: If no cards, show waiting state - NO FALLBACK FETCH
-  if (!aiAssembledCards || aiAssembledCards.length === 0) {
+  // ✅ STRICT A2UI RULE #3: null cards = the AI event has NOT arrived yet.
+  // Never claim "empty" while the surface is still waiting for the AI.
+  if (!aiAssembledCards) {
+    return (
+      <div className="flex-1 w-full h-full flex flex-col items-center justify-center gap-4" style={{ backgroundColor: "#E5E1DD", minHeight: "calc(100vh - 120px)" }}>
+        <div className="w-8 h-8 border-3 border-[#507274] border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-[#507274] text-sm font-medium font-['Inter'] animate-pulse">Waiting for AI assembly…</p>
+      </div>
+    );
+  }
+
+  // ✅ STRICT A2UI RULE #4: The AI assembled successfully and the truth is:
+  // this user owns ZERO prompt packages. State it exactly — with the
+  // identity that was queried — and offer the two honest intents:
+  // create a package (composer intent) or re-assemble (AI command).
+  if (aiAssembledCards.length === 0) {
+    const uid = getStoredUserId();
     return (
       <div className="flex-1 w-full h-full flex items-center justify-center" style={{ backgroundColor: "#E5E1DD", minHeight: "calc(100vh - 120px)" }}>
-        <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-8 max-w-lg text-center">
-          <h2 className="text-amber-700 text-xl font-bold mb-2">No Workflows Found</h2>
-          <p className="text-amber-600 mb-4">Create your first workflow to get started.</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-amber-600 text-white font-semibold rounded-lg hover:bg-amber-700 transition-colors"
-          >
-            Refresh
-          </button>
+        <div className="bg-white border-2 border-[#507274] rounded-2xl p-8 max-w-lg text-center">
+          <h2 className="text-[#234354] text-xl font-bold mb-2">AI assembled — 0 packages</h2>
+          <p className="text-gray-600 mb-1 text-sm">
+            The console assembled successfully. No prompt packages exist for user
+            <span className="font-mono text-xs bg-gray-100 px-1 rounded ml-1">{uid.slice(0, 8)}…{uid.slice(-4)}</span>
+          </p>
+          <p className="text-gray-500 mb-6 text-xs">
+            If you expected packages here, you may be signed in as a different identity than the package owner.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => onCreateNew?.(`New Prompt Agent • ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`)}
+              className="px-6 py-2 bg-[#234354] text-white font-semibold rounded-lg hover:bg-[#1a2f3d] transition-colors"
+            >
+              Create in Composer
+            </button>
+            <button
+              onClick={requestReassembly}
+              className="px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              Re-assemble
+            </button>
+          </div>
         </div>
       </div>
     );
