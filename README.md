@@ -36,7 +36,7 @@ The platform enforces **strict A2UI compliance**:
 
 ## About
 
-Raibach Design System Lifecycle Management is a central hub for design system governance — a three-column AI workspace where designers, engineers, and UX leads assemble, test, evaluate, and govern design patterns at scale.
+Design System Lifecycle Management is a central hub for design system governance — a three-column AI workspace where designers, engineers, and UX leads assemble, test, evaluate, and govern design patterns at scale.
 
 **What it does:**
 - **Assemble** — structured prompt agents define component specs, design tokens, and behavior rules
