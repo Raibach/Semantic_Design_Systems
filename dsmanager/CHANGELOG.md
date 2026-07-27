@@ -1,4 +1,4 @@
-# Changelog — Raibach Design System Lifecycle Management
+# Changelog — Design System Lifecycle Management
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
