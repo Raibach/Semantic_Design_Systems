@@ -1,4 +1,4 @@
-# Raibach Design System Lifecycle Management — {impromptu}
+# A2UI Design System Lifecycle Management — {impromptu}
 
 > **One surface. Any payload. The AI is the Architect.**
 
