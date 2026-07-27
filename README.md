@@ -19,15 +19,6 @@ This platform implements **Google's A2UI (Agent-to-User Interface) v0.9 specific
 | **Specification** | [a2ui.org/specification/v0.9/](https://a2ui.org/specification/v0.9/) |
 | **Announcement** | [Google Developers Blog (Dec 15, 2025)](https://developers.googleblog.com/introducing-a2ui-an-open-project-for-agent-driven-interfaces/) |
 
-### Compliance Verification
-
-| Our Implementation | A2UI v0.9 Requirement | Status |
-|--------------------|----------------------|--------|
-| LLM outputs JSON cards | "Declarative data format, not executable code" | ✅ |
-| Trusted component catalog (`ConsoleCard`, `Frame29`) | "Pre-approved component catalog" | ✅ |
-| `assembleConsoleWithAI()` renders at runtime | "Agents generate UI dynamically" | ✅ |
-| HTTP 503 on LLM failure, no fallback HTML | Zero-trust rendering | ✅ |
-| Backend decides WHAT, frontend decides HOW | Framework-agnostic separation | ✅ |
 
 ### A2UI Core Philosophy
 
