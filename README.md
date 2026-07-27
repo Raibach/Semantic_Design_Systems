@@ -70,7 +70,7 @@ Each prompt session is a self-contained agent lifecycle: build, test, evaluate, 
 🎨 **Live Documentation:** [`storybook-static/`](frontend/storybook) | Production Ready
 ---
 
-## 🏗️ Architecture Excellence
+## 🏗️ Architecture
 
 ### Lightweight & Fast
 - **Lit Web Components** - Native browser standards, zero framework lock-in
