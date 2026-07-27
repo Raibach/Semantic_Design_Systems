@@ -61,3 +61,9 @@ config/milvus_export.json
 
 # External projects
 raibach/
+# Local-only zone — never publish (user's private storage, NOT a GitHub backup)
+_local/
+dsmanager copy/
+*.dmg
+# Dev boot script — stays on disk only, curated off the public repo
+dsmanager/RESTART-LOCAL.sh
