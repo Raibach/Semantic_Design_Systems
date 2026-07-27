@@ -2452,6 +2452,193 @@ async def create_ai_suggestion(
         )
 
 
+class GrantPermissionRequest(BaseModel):
+    user_id: str
+    role: str  # 'owner' | 'editor' | 'viewer'
+
+
+class TransferOwnershipRequest(BaseModel):
+    new_owner_id: str
+
+
+@app.get("/api/prompt-sessions/{session_id}/permissions")
+async def get_session_permissions(
+    session_id: str,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """List all contributors on a package (owner-only view)."""
+    if not prompt_sessions_api:
+        raise HTTPException(status_code=503, detail="Database not available")
+    uid = get_user_id_from_header(x_user_id)
+    conn = prompt_sessions_api.get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SET app.current_user_id = %s", (uid,))
+        cursor.execute("SELECT user_id FROM prompt_sessions WHERE id = %s", (session_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if str(row["user_id"]) != uid:
+            raise HTTPException(status_code=403, detail="Only the owner can view permissions")
+        cursor.execute(
+            """
+            SELECT user_id, role, granted_by, created_at
+            FROM session_permissions WHERE session_id = %s
+            ORDER BY created_at ASC
+            """,
+            (session_id,),
+        )
+        perms = [dict(r) for r in cursor.fetchall()]
+        for p in perms:
+            if p.get("created_at"):
+                p["created_at"] = p["created_at"].isoformat()
+        return {"permissions": perms, "owner_id": str(row["user_id"])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/prompt-sessions/{session_id}/permissions")
+async def grant_session_permission(
+    session_id: str,
+    request: GrantPermissionRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """Grant a user a contributor role on the package (owner-only)."""
+    if request.role not in ("owner", "editor", "viewer"):
+        raise HTTPException(status_code=400, detail="Role must be owner, editor, or viewer")
+    if not prompt_sessions_api:
+        raise HTTPException(status_code=503, detail="Database not available")
+    uid = get_user_id_from_header(x_user_id)
+    conn = prompt_sessions_api.get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SET app.current_user_id = %s", (uid,))
+        cursor.execute("SELECT user_id FROM prompt_sessions WHERE id = %s", (session_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if str(row["user_id"]) != uid:
+            raise HTTPException(status_code=403, detail="Only the owner can grant permissions")
+        cursor.execute(
+            """
+            INSERT INTO session_permissions (session_id, user_id, role, granted_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (session_id, user_id) DO UPDATE SET role = EXCLUDED.role
+            RETURNING id
+            """,
+            (session_id, request.user_id, request.role, uid),
+        )
+        granted = cursor.fetchone()
+        conn.commit()
+        return {"success": True, "permission_id": str(granted["id"]) if granted else None,
+                "session_id": session_id, "user_id": request.user_id, "role": request.role}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/prompt-sessions/{session_id}/permissions/{target_user_id}")
+async def revoke_session_permission(
+    session_id: str,
+    target_user_id: str,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """Revoke a contributor's role on the package (owner-only; cannot revoke owner)."""
+    if not prompt_sessions_api:
+        raise HTTPException(status_code=503, detail="Database not available")
+    uid = get_user_id_from_header(x_user_id)
+    conn = prompt_sessions_api.get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SET app.current_user_id = %s", (uid,))
+        cursor.execute("SELECT user_id FROM prompt_sessions WHERE id = %s", (session_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if str(row["user_id"]) != uid:
+            raise HTTPException(status_code=403, detail="Only the owner can revoke permissions")
+        if target_user_id == uid:
+            raise HTTPException(status_code=400, detail="Cannot revoke the owner's role — transfer ownership first")
+        cursor.execute(
+            """
+            DELETE FROM session_permissions
+            WHERE session_id = %s AND user_id = %s AND role != 'owner'
+            RETURNING id
+            """,
+            (session_id, target_user_id),
+        )
+        deleted = cursor.fetchone()
+        conn.commit()
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Permission not found")
+        return {"success": True, "session_id": session_id, "revoked_user_id": target_user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/prompt-sessions/{session_id}/transfer")
+async def transfer_session_ownership(
+    session_id: str,
+    request: TransferOwnershipRequest,
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """Transfer package ownership to another user (owner-only). Previous owner keeps 'editor'."""
+    if not prompt_sessions_api:
+        raise HTTPException(status_code=503, detail="Database not available")
+    uid = get_user_id_from_header(x_user_id)
+    conn = prompt_sessions_api.get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SET app.current_user_id = %s", (uid,))
+        cursor.execute("SELECT user_id FROM prompt_sessions WHERE id = %s", (session_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if str(row["user_id"]) != uid:
+            raise HTTPException(status_code=403, detail="Only the owner can transfer ownership")
+        # New owner takes over the row + gets owner permission
+        cursor.execute(
+            "UPDATE prompt_sessions SET user_id = %s, updated_at = NOW() WHERE id = %s",
+            (request.new_owner_id, session_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO session_permissions (session_id, user_id, role, granted_by)
+            VALUES (%s, %s, 'owner', %s)
+            ON CONFLICT (session_id, user_id) DO UPDATE SET role = 'owner'
+            """,
+            (session_id, request.new_owner_id, uid),
+        )
+        # Previous owner drops to editor
+        cursor.execute(
+            """
+            UPDATE session_permissions SET role = 'editor'
+            WHERE session_id = %s AND user_id = %s
+            """,
+            (session_id, uid),
+        )
+        conn.commit()
+        return {"success": True, "session_id": session_id,
+                "previous_owner_id": uid, "new_owner_id": request.new_owner_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @app.get("/api/prompt-sessions/{session_id}/conversations")
 async def get_session_conversations(
     session_id: str,
@@ -2876,6 +3063,7 @@ async def ai_assemble_surface(
             limit=limit,
             offset=0,
             lightweight=True,
+            exclude_drafts=True,  # unsigned composer drafts never litter the console
         )
         ms_a = (time.perf_counter() - t_a_start) * 1000
 
@@ -3054,6 +3242,30 @@ Output ONLY valid JSON:
         print(f"  Remainder (other):                          {elapsed_ms - ms_a - ms_b - ms_c:8.1f}ms")
         print(f"{'='*60}\n")
 
+        # ── R2: PACKAGE-FIRST COMPOSER ──
+        # Create the draft package row NOW so the chat and every action are
+        # package-scoped from the first keystroke — not just after first save.
+        # The draft is hidden from the console until the user saves it
+        # (render-console excludes metadata.draft packages).
+        draft_session_id = None
+        if prompt_sessions_api:
+            try:
+                draft = prompt_sessions_api.create_session(
+                    user_id=uid,
+                    title=suggested_title,
+                    description="Draft package — created on composer mount",
+                )
+                if draft and draft.get("id"):
+                    draft_session_id = str(draft["id"])
+                    prompt_sessions_api.update_session(
+                        session_id=draft_session_id,
+                        user_id=uid,
+                        metadata={"draft": True, "created_via": "render-composer"},
+                    )
+                    print(f"[A2UI Surface] Draft package created: {draft_session_id}")
+            except Exception as e:
+                print(f"[A2UI Surface] Draft package creation warning: {e}")
+
         # Default sections for blank composer
         default_sections = [
             {"name": "System Role", "type": "system", "content": "", "position": 0},
@@ -3093,7 +3305,7 @@ Output ONLY valid JSON:
                     "path": "/",
                     "value": {
                         "session": {
-                            "id": None,  # No ID until saved
+                            "id": draft_session_id,  # R2: package exists from mount (draft)
                             "title": suggested_title,
                             "is_unsaved": True,
                             "left_column": {"sections": default_sections},

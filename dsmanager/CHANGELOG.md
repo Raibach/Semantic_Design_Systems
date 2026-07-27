@@ -2,6 +2,37 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+## 2026-07-27 (PM4): Package Architecture R1–R4 — Identity Honesty, Package-First Composer, Contributors API, Trace-Spine Correction
+
+All four items **live-verified** against the running backend and the local `railway` DB.
+
+### R1 — Identity Honesty (`LeftColumnHeader.tsx`)
+- **Identity chip in ROW 1, visible on every tab:** `u:{first8}…{last4}` with hover tooltip showing the full active identity. The console assembles packages owned by this identity — if it looks empty, the chip tells you why at a glance. Direct answer to the "No Workflows Found" identity-mismatch root cause.
+
+### R2 — Package-First Composer (`backend/main.py`, `prompt_sessions_api.py`)
+- **The package exists from keystroke one.** `render-composer` now creates the draft session row on mount (title = AI-suggested) and returns `session.id` — previously `null` until first save, which left chat and activity unscoped.
+- Draft marked `metadata.draft = true`; **`render-console` excludes drafts** (`exclude_drafts` param on `get_sessions`) — abandoned composer visits never litter the console.
+- On save, `update_session` metadata replace clears the draft flag → package becomes console-visible.
+- **Verified live:** draft created with AI title ("Agent Ignition"), owner permission row present, 10-card console with draft absent; verification artifact then permanently deleted (cascade clean).
+
+### R3 — Contributors API (`backend/main.py`, `prompt_sessions_api.py`)
+- **New endpoints (owner-gated):** `GET/POST/DELETE /api/prompt-sessions/{id}/permissions[/{user_id}]` (list/grant/revoke, roles owner/editor/viewer) + `POST /{id}/transfer` (ownership transfer — previous owner drops to editor).
+- **Permission-aware data layer:** `get_sessions` reads `owned OR shared via session_permissions`; `update_session` writes for owner OR editor; `create_session` inserts the owner row at source (idempotent).
+- **Backfill:** 4 sessions missing permission rows filled → **36/36 packages now have owner rows**; unique index on `(session_id, user_id)` confirmed (pre-existing).
+- **Verified live round-trip:** grant editor → list (owner + editor) → revoke → 404-guard on owner-revoke → cascade cleanup on session delete.
+
+### R4 — Trace-Spine Correction (`READ-ME/AGENT_PACKAGE_ARCHITECTURE.md`)
+- `prompt_trace_activity` **does not exist in the DB** — doc corrected: the real trace spine is `prompt_versions` (relational snapshots) + `ai_actions` (Zilliz vector audit) + `audit_logs` (API audit) + `usage_metrics` (token/cost aggregation). §3.1, §3.3, and §6 updated.
+
+### Verification
+- `py_compile` OK on all touched backend files; `tsc --noEmit` exit 0; dist rebuilt (3.08s); health `{"database":"connected","milvus":"connected"}`; R2/R3 endpoint evidence captured in-session.
+
+### Next
+- **Phase 3:** generic adjacency-list renderer + JSON Pointer data binding (frontend) — the F5/F6/F12 remnants from the TRUE vs FAKE audit.
+- **Phase 4:** remaining stale READ-ME rewrites + changelog dedup + `main.py` router split.
+
+---
+
 ## 2026-07-27 (PM3): Navigation Fix via Stale-Build Diagnosis + Honest Console States + Dev No-Cache
 
 ### Root Cause of "Composer click reloads Console" — STALE DIST BUNDLE

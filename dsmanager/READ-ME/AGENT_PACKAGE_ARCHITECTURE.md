@@ -75,7 +75,7 @@ When the user clicks **Save Template** (or presses a keyboard shortcut), the sys
 |---|------|--------|-----------|
 | 1 | Agent config (roles, tools, vars, sections) | Left column DOM textareas | `prompt_sessions.left_column_content` |
 | 2 | Full conversation history (all messages) | Right column chat | Serialized JSON in `compiled_output` + `conversation_id` FK |
-| 3 | Execution trace / audit | Third column trace panel | `prompt_trace_activity` table |
+| 3 | Execution trace / audit | Third column trace panel | `prompt_versions` (relational snapshots) + `ai_actions` (Zilliz vector audit) + `audit_logs` (API audit) |
 | 4 | Timestamp (`savedAt`) | `new Date().toISOString()` | `prompt_sessions.updated_at` + version metadata |
 | 5 | Version number (auto-incremented) | Backend | `prompt_sessions.current_version` + new `prompt_versions` row |
 | 6 | Metadata (tags, author, access, tokens) | Metadata block | `prompt_sessions.metadata` (JSONB) |
@@ -100,13 +100,17 @@ Save Template click
 
 ### 3.3 Database Tables Involved
 
-| Table | Role |
+| Table / Store | Role |
 |-------|------|
 | `prompt_sessions` | Main agent record: config, title, conversation_id FK, metadata |
 | `prompt_versions` | Immutable version history: full content snapshot per save |
 | `conversations` | Chat messages linked via FK from prompt_sessions |
-| `prompt_trace_activity` | Execution audit: tokens, cost, runs, timestamps |
-| `audit_logs` | (future) Governance: who saved, when, what changed |
+| `session_permissions` | Contributor/group model: user_id + role (owner/editor/viewer) + granted_by — one row per contributor per package |
+| `audit_logs` | API-level audit: user actions, resource types, latency, metadata |
+| `ai_actions` (Zilliz) | Vector-audit of AI tag mutations per prompt_id (Milvus collection) |
+| `prompt_memory` (Zilliz) | Semantic memory snapshots for retrieval (Milvus collection) |
+
+> **Correction (2026-07-27):** The `prompt_trace_activity` table referenced here previously **does not exist in the database** — it was documented but never created. The real trace spine is: `prompt_versions` (relational snapshots), `ai_actions` in Zilliz (vector audit trail of every AI mutation), and `audit_logs` (API audit). Token/cost/run telemetry currently flows through `usage_metrics` and the Trace tab's live computation.
 
 ---
 
@@ -148,11 +152,11 @@ When the user clicks **Run** (⌘⏎):
 1. The agent configuration is sent to the LLM backend
 2. The response is processed and formatted
 3. If the agent produces structured output, a **diagram** is generated in the third column
-4. The execution is recorded in `prompt_trace_activity`:
-   - Tokens used
-   - Estimated cost
-   - Execution timestamp
-   - Run count (incremented)
+4. The execution is recorded across the trace spine:
+   - `prompt_versions` — full workspace snapshot per run/save (relational)
+   - `ai_actions` (Zilliz) — the AI mutation event with prompt_id partition (vector-audit)
+   - `audit_logs` — API-level record with latency and metadata
+   - `usage_metrics` — token/cost aggregation used by the Trace tab
 
 ---
 

@@ -34,6 +34,7 @@ import useEmblaCarousel from "embla-carousel-react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ColumnFlipToggle } from "@/components/ColumnFlipToggle";
 import VersionManager from "./VersionManager";
+import { getStoredUserId } from "@/services/authService";
 
 interface LeftColumnHeaderProps {
   // === ROW 1 PROPS ===
@@ -255,6 +256,20 @@ export default function LeftColumnHeader({
               </button>
             </div>
           )}
+        </div>
+
+        {/* IDENTITY CHIP — always visible, every tab.
+            A2UI honesty: the console assembles packages owned by THIS identity.
+            If the console looks empty, check this id against the package owner. */}
+        <div
+          data-lit-id="identity-chip"
+          data-lit-type="content-area"
+          data-lit-description="Active user identity — console assembles packages owned by this user"
+          className="shrink-0 font-mono text-xs px-2 py-1 rounded select-all md:block hidden"
+          style={{ color: "rgba(0,0,0,0.75)", backgroundColor: "rgba(255,255,255,0.35)" }}
+          title={`Active identity: ${getStoredUserId()}\nThe console assembles prompt packages owned by this user.`}
+        >
+          u:{getStoredUserId().slice(0, 8)}…{getStoredUserId().slice(-4)}
         </div>
       </div>
 

@@ -1,222 +1,81 @@
-# Raibach Design System Lifecycle Management
+# Raibach Design System Lifecycle Management — {impromptu}
 
-> *"Agentic Design System Collaboraiton for Non-designers"*
+> **One surface. Any payload. The AI is the Architect.**
 
-**Product Package — Document of Record**
-Built by **Raibach** &bull; AI Model **Claude Code (GitHub Copilot CLI)**
-**Date**: 2026-07-21 &bull; **Version**: 0.4.4
-**Status**: Active Development
+**Built by John Holt, Raibach Interactive Design Studio**
+**Date:** 2026-07-27 · **Version:** 0.9.1-dev · **Status:** Active Development (honest A2UI restoration in progress)
 
 ---
 
-## A2UI v0.9 Specification Compliance
+## What This Is
 
-This platform implements **Google's A2UI (Agent-to-User Interface) v0.9 specification** — the open standard for AI-driven user interfaces.
+An **A2UI (Agent-to-User Interface) workspace** — a single, stable three-column surface where every pixel is assembled at runtime by the AI from a trusted component catalog. No URL routing to surfaces. No static pages. Every navigation action is an AI command (`intent`) that flows through one unified endpoint and returns a spec-compliant envelope.
 
-| Specification | Link |
-|---------------|------|
-| **Repository** | [github.com/google/A2UI](https://github.com/google/A2UI) |
-| **Specification** | [a2ui.org/specification/v0.9/](https://a2ui.org/specification/v0.9/) |
-| **Announcement** | [Google Developers Blog (Dec 15, 2025)](https://developers.googleblog.com/introducing-a2ui-an-open-project-for-agent-driven-interfaces/) |
+**The product:** prompt *packages* — configuration + conversation history + execution trace + governance metadata, bundled as one versioned, shareable, contributor-owned unit. The package is the aggregate root; the user is not the package.
 
-### Compliance Verification
-
-| Our Implementation | A2UI v0.9 Requirement | Status |
-|--------------------|----------------------|--------|
-| LLM outputs JSON cards | "Declarative data format, not executable code" | ✅ |
-| Trusted component catalog (`ConsoleCard`, `Frame29`) | "Pre-approved component catalog" | ✅ |
-| `assembleConsoleWithAI()` renders at runtime | "Agents generate UI dynamically" | ✅ |
-| HTTP 503 on LLM failure, no fallback HTML | Zero-trust rendering | ✅ |
-| Backend decides WHAT, frontend decides HOW | Framework-agnostic separation | ✅ |
-
-### A2UI Core Philosophy
-
-> "A2UI is a declarative data format, not executable code. Agents can only render components from a pre-approved catalog."
-
-The platform enforces **strict A2UI compliance**:
-- Every console load triggers an LLM call (DeepSeek v4-flash)
-- No cached/static fallback UI — if AI is offline, user sees error
-- Temperature = 0.0 ensures deterministic card generation
-- Partners: Google, CopilotKit, Flutter GenUI SDK
-
-**Full documentation:** [`frontend/src/storybook/documentation/A2UI_SPEC_COMPLIANCE.md`](frontend/src/storybook/documentation/A2UI_SPEC_COMPLIANCE.md)
+**Docs of record:**
+- [`SPECIFICATIONS.md`](SPECIFICATIONS.md) — full A2UI Protocol v0.9.1 + Basic Catalog Guide + A2A Extension (verbatim from [a2ui.org](https://a2ui.org/))
+- [`READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md`](READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md) — the live-verified ledger of what was real vs compliance theater, and the remediation that fixed it
+- [`CHANGELOG.md`](CHANGELOG.md) — day-by-day build log
 
 ---
 
-## About
+## A2UI v0.9.1 — As Actually Implemented (verified live 2026-07-27)
 
-Raibach Design System Lifecycle Management is a central hub for design system governance — a three-column AI workspace where designers, engineers, and UX leads assemble, test, evaluate, and govern design patterns at scale.
-
-**What it does:**
-- **Assemble** — structured prompt agents define component specs, design tokens, and behavior rules
-- **Evaluate** — AI scores every execution against grounding metrics (faithfulness, hallucination, recall)
-- **Govern** — every change is versioned, traced, and auditable; the AI iterates autonomously until quality thresholds are met
-
-**Who it's for:**
-- **Design system teams** managing component libraries across product surfaces
-- **UX oversight leads** auditing pattern adherence and drift across teams
-- **Design engineers** bridging Figma designs to production code through AI-assisted pipelines
-- **Enterprise governance** requiring audit trails, role-based access, and quality gates on design output
-
-Each prompt session is a self-contained agent lifecycle: build, test, evaluate, iterate, govern.
-
----
-
-## Features
-
-| Feature | Phase | Status | File |
-|---------|-------|--------|------|
-| A2UI Control Surface | 1–4 | 🔄 In Progress | [`phases-markdown/A2UI_CONTROL_SURFACE.md`](phases-markdown/A2UI_CONTROL_SURFACE.md) |
-| Figma Make Pipeline | 1 | ⚠️ Needs Automation | [`phases-markdown/FIGMA_MAKE_PIPELINE.md`](phases-markdown/FIGMA_MAKE_PIPELINE.md) |
+| Mechanism | Reality |
+|-----------|---------|
+| **Unified assembly endpoint** | `POST /api/ai/assemble-surface` — the ONLY surface path. Intents: `render-console`, `render-composer`, `render-session:{id}` |
+| **Envelope** | Array of protocol messages — `createSurface`, `updateComponents`, `updateDataModel` — each stamped `"version": "v0.9.1"`, `catalogId` = catalog `$id` |
+| **Trusted catalog** | `frontend/src/components/A2UI/component-catalog.json` — **20 components** (6 A2UI Basic + 14 project-specific, `ChildList`/`DynamicString` typed per validator rules) |
+| **Zero-trust validation** | Catalog loads at startup (fail-fast); `validate_a2ui_components()` guards every return point; unknown components → **HTTP 503 `VALIDATION_FAILED`** (spec error format) |
+| **No executable code** | `eval()` deleted; raw `innerHTML` injection blocked; buttons dispatch declarative `a2ui:action` events only |
+| **No fallbacks** | AI offline or invalid JSON → HTTP 503 with the real error. Fail hard, fail loud |
+| **Chat = command interface** | XML tags in AI responses (`<update_agent>`, `<add_role>`, `<reassemble-console>`) bridge to surface commands via CustomEvents |
 
 ## Architecture
 
-- [Agent Package Architecture](READ-ME/AGENT_PACKAGE_ARCHITECTURE.md) — Three-column prompt sessions as atomic units
-- [Architecture Overview](READ-ME/ARCHITECTURE_2026-07-07.md) — Dual database, agentic flow
-- [Dynamic Semantic Canvas](READ-ME/THE_DYNAMIC_SEMANTIC_CANVAS.md) — Design philosophy
+```
+Console tab ──► render-console  ──► PostgreSQL → DeepSeek → v0.9.1 envelope ──► Lit agent-card grid
+Composer tab ─► render-composer ─► draft package row CREATED ON MOUNT ─► chat package-scoped from keystroke one
+Open card ────► render-session:{id} ─► full package: sections + output + conversation + versions
 
-
-🎨 **Live Documentation:** [`storybook-static/`](frontend/storybook) | Production Ready
----
-
-## 🏗️ Architecture Excellence
-
-### Lightweight & Fast
-- **Lit Web Components** - Native browser standards, zero framework lock-in
-- **Vite 7** - Sub-second hot reload, optimized production builds
-- **Tailwind CSS 4** - Utility-first with zero runtime overhead
-- **FastAPI** - Async Python backend with incredible performance
-
-### Intelligent Data Layer
-- **Dual-Database Architecture** - PostgreSQL for structure, Milvus for semantic search
-- **Agent Packages** - Prompts become versioned, shareable units with full execution context
-- **Six-Layer Validation** - Enterprise-grade compliance and governance built-in
-- **Pattern Assembly Framework** - Reusable patterns assembled by AI and humans collaboratively
-
-### Production Infrastructure
-- **Northflank Deployment** - Container-native with auto-scaling
-- **Secret Management** - Enterprise-grade credential handling
-- **Real-Time Collaboration** - Multi-user editing with synchronized state
-- **24/7 Availability** - Deployed and running in production
-
----
-
-
-**Traditional Development:**
-Designer → Mockup → Developer → Code → Deploy
-
-**This Approach:**
-Designer + AI → Working Product → Deploy
-
-The entire platform was built through natural language conversations with Claude Code, proving that domain expertise combined with AI assistance can produce production-quality software without traditional coding.
-
----
-
-## 🚀 Live System Components
-
-| Component | Purpose | Status |
-|---|---|---|
-| **Pattern Library** | Reusable Lit components | ✅ Production |
-| **AI Orchestrator** | XML command processing | ✅ Production |
-| **Surface Controller** | Real-time UI manipulation | ✅ Production |
-| **Database Layer** | PostgreSQL + Milvus | ✅ Production |
-| **Deployment** | Northflank containers | ✅ Production |
-
----
-
-## 📊 Technical Achievements
-
-- **15,000+ lines** of production TypeScript/Python
-- **Dual database** architecture implemented
-- **Six-layer validation** system
-- **Real-time collaboration** features
-- **Production deployment** on Northflank
-- **Comprehensive Storybook** documentation
-
-All built through conversational programming with AI.
-
----
-
-## 🔧 Quick Start
-
-```bash
-# 1. Build the frontend (FastAPI serves the built dist)
-pnpm --dir frontend install && pnpm --dir frontend build
-
-# 2. Configure the backend
-#    backend/.env needs DATABASE_URL and DEEPSEEK_API_KEY
-
-# 3. Run — one process serves API + UI
-cd backend && uvicorn main:app --host 0.0.0.0 --port 5173
+Left column   = SectionEditor (prompt sections: System/User/Tool/FewShot/Context/Constraints)
+Middle column = CompiledOutput (universal render target)
+Right column  = ChatPanel (the command interface for the whole surface)
+Sandbox frame = <ai-surface-sandbox> — Lit Shadow DOM viewport; React shell only orchestrates
 ```
 
-Open http://localhost:5173 — the FastAPI backend serves both the API and the
-built frontend. Requires PostgreSQL locally; Milvus is optional for semantic
-search features.
+**Package-first composer:** a new composer creates the draft package row immediately (`metadata.draft = true`, hidden from the console until saved). **Contributors:** `session_permissions` (owner/editor/viewer) with owner-gated grant/revoke/transfer endpoints; reads are permission-aware (owned OR shared).
 
-Release process: [`deployment/RELEASE-PROCESS.md`](deployment/RELEASE-PROCESS.md)
+## Data Layer
 
----
+| Store | Role | Truth |
+|-------|------|-------|
+| **PostgreSQL `railway`** (local 15.14, Homebrew) | Source of truth: 42 tables — packages, versions (4.9k), conversations, permissions, audit | Local dev stays authoritative until site repair completes |
+| **Zilliz Cloud** (`in03-5620992e020c852`, gcp-us-west1) | Vector memory: 8 collections — `prompt_versions`, `prompt_memory`, `ai_actions` (384-dim, `BAAI/bge-small-en`, COSINE) | Live via REST + pymilvus w/ token |
+| **DeepSeek** (`deepseek-v4-flash`, fallback `deepseek-chat`) | All assembly + compilation | Live |
 
-## 💡 Key Innovation: A2UI Pattern Assembly
+## Development
 
-Unlike static UI specifications, this platform enables:
+```bash
+bash RESTART-LOCAL.sh        # verifies .env/.venv/Postgres, kills :5173, boots uvicorn main:app
+cd frontend && npm run build # rebuild dist (backend serves frontend/dist — REBUILD AFTER ANY FRONTEND CHANGE)
+```
 
-1. **Dynamic Pattern Creation** - Define once, use everywhere
-2. **AI-Controlled Surfaces** - Agents manipulate UI through XML commands
-3. **Conversation Persistence** - Full history and state management
-4. **Version Control** - Roll back, fork, and merge UI states
-5. **Enterprise Compliance** - Six-layer validation for critical workflows
+- **Health:** `GET /api/health` → `{"database":"connected","milvus":"connected"}`
+- **Access:** PIN gate (`7377` local dev)
+- **Dev phase:** global no-cache middleware — nothing is ever cached; long loads expected
+- **Identity:** console is strictly user-scoped; the header chip shows the active identity (`u:00000000…0001`)
 
-### Package-Owned Conversations (v0.4.4)
+## Deployment
 
-Conversations belong to **prompt sessions (packages), not users** — each
-package carries its own tab-scoped conversation history (`conversations.session_id`
-+ `tab`), making packages fully portable between users. Users are audit
-context only. Schema: `api/database/migration_019_package_owned_conversations.sql`.
+Docker on Northflank (see `Dockerfile`). The backend serves the committed `frontend/dist` bundle — production deploys require `git add -f frontend/dist` per release process. Remote DB untouched pending local↔remote comparison.
 
-**Save = surface photograph.** Saving a template captures the exact surface
-state — prompt sections as-is, output column only if a run produced output.
-Reopening a package restores precisely the state that was saved: no synthetic
-compiled output, no resurrected stale data.
+## Roadmap
 
----
-
-## 🏆 Why This Matters
-
-This project demonstrates that:
-
-1. **Designers can build production software** with AI assistance
-2. **25 years of UX expertise** translates directly to system architecture
-3. **Conversational programming** is viable for complex applications
-4. **AI pair programming** accelerates development by 10-100x
-5. **The future is here** - and it's more accessible than ever
+- **Phase 3 (next):** generic adjacency-list renderer + JSON Pointer data binding (`DynamicString` resolution, `ChildList` templates, client→server `action` messages) — replaces the hand-parsed view logic
+- **Phase 4:** remaining READ-ME rewrites, changelog dedup, `main.py` router split
 
 ---
 
-## 📚 Documentation
-
-Comprehensive documentation available in multiple formats:
-
-- **Storybook**: Interactive component documentation
-- **Markdown**: Technical specifications in `/docs`
-- **Version History**: Complete development timeline
-- **A2UI Philosophy**: Pattern assembly framework documentation
-
----
-
-## 🎨 About the Creator
-
-**John Holt** - Raibach Interactive Design Studio
-
-
----
-
-## 🔒 License
-
-Copyright © 2026 John Holt, Raibach Interactive Design Studio
-All Rights Reserved. Proprietary and confidential.
-
----
-
-*"The best interface is no interface. The best code is conversation."*
+*"The interface never changes. The AI delivers different levels of access. That's the architecture."*

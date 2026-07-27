@@ -66,6 +66,20 @@ class PromptSessionsAPI:
 
                 session_id = cursor.fetchone()["session_id"]
 
+                # Every package gets an owner permission row at creation.
+                # Idempotent — fills the gap for paths that historically missed it.
+                cursor.execute(
+                    """
+                    INSERT INTO session_permissions (session_id, user_id, role, granted_by)
+                    SELECT %s, %s, 'owner', %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM session_permissions
+                        WHERE session_id = %s AND user_id = %s
+                    )
+                    """,
+                    (session_id, user_id, user_id, session_id, user_id),
+                )
+
                 # Get the created session
                 cursor.execute(
                     """
@@ -98,13 +112,16 @@ class PromptSessionsAPI:
         limit: int = 50,
         offset: int = 0,
         lightweight: bool = False,
+        exclude_drafts: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Get all prompt sessions for a user.
+        Get all prompt sessions for a user (owned + shared via session_permissions).
         
         If lightweight=True, skips left_column_content and compiled_output
         (the full prompt package) — only fetches metadata columns needed
         for card grids and listings.
+        If exclude_drafts=True, hides packages still marked metadata.draft
+        (unsigned composer drafts that were never saved by the user).
         """
         with self.get_db() as conn:
             cursor = conn.cursor()
@@ -119,6 +136,8 @@ class PromptSessionsAPI:
                 # Set user context for RLS
                 cursor.execute("SET app.current_user_id = %s", (str(user_uuid),))
 
+                # Permission-aware read: the user sees packages they own AND
+                # packages shared with them via session_permissions (any role).
                 if lightweight:
                     query = """
                         SELECT
@@ -129,7 +148,9 @@ class PromptSessionsAPI:
                             COUNT(pv.id) as version_count
                         FROM prompt_sessions ps
                         LEFT JOIN prompt_versions pv ON ps.id = pv.session_id
-                        WHERE ps.user_id = %s
+                        WHERE (ps.user_id = %s OR ps.id IN (
+                            SELECT session_id FROM session_permissions WHERE user_id = %s
+                        ))
                     """
                 else:
                     query = """
@@ -148,13 +169,18 @@ class PromptSessionsAPI:
                         LEFT JOIN prompt_versions pv_content ON pv_content.session_id = ps.id
                             AND pv_content.version_number = ps.current_version
                         LEFT JOIN ai_suggestions asug ON ps.id = asug.session_id
-                        WHERE ps.user_id = %s
+                        WHERE (ps.user_id = %s OR ps.id IN (
+                            SELECT session_id FROM session_permissions WHERE user_id = %s
+                        ))
                     """
 
-                params = [user_uuid]
+                params = [user_uuid, user_uuid]
 
                 if not include_archived:
                     query += " AND ps.is_archived = FALSE"
+
+                if exclude_drafts:
+                    query += " AND (ps.metadata->>'draft') IS NULL"
 
                 if lightweight:
                     query += """
@@ -404,13 +430,21 @@ class PromptSessionsAPI:
                 updates.append("updated_at = NOW()")
                 updates.append("last_accessed_at = NOW()")
 
+                # Permission-aware write: owner OR editor role on the package.
                 query = f"""
                     UPDATE prompt_sessions
                     SET {", ".join(updates)}
-                    WHERE id = %s AND user_id = %s
+                    WHERE id = %s AND (
+                        user_id = %s
+                        OR EXISTS (
+                            SELECT 1 FROM session_permissions sp
+                            WHERE sp.session_id = %s AND sp.user_id = %s
+                              AND sp.role IN ('owner', 'editor')
+                        )
+                    )
                     RETURNING id
                 """
-                params.extend([session_id, user_id])
+                params.extend([session_id, user_id, session_id, user_id])
 
                 cursor.execute(query, params)
                 result = cursor.fetchone()
