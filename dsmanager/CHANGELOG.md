@@ -2,6 +2,47 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+## 2026-07-27 (PM): Dead-Code Purge, Zilliz Reconnection + TRUE/FAKE Audit — COMPLETE ✅
+
+### Specifications Reference Created (`SPECIFICATIONS.md`)
+- **Full A2UI v0.9.1 specs copied verbatim to repo root** from [a2ui.org](https://a2ui.org/): §1 Protocol v0.9.1, §2 Basic Catalog Implementation Guide, §3 A2A Extension. Permanent offline reference — the compliance yardstick for all future work.
+
+### Backend Dead-Code Purge (`backend/` — main.py 4,428 → 4,025 lines)
+- **Deleted entire `backend/routers/` package (9 files)** — was never wired in (`main.py` never called `include_router`); `routers/__init__.py` claimed otherwise. `api_core.py` deleted with it (existed only to serve dead routers).
+- **Deleted 7 dead modules** (zero live importers, verified by repo-wide grep): `keeper_api.py`, `quarantine_api.py`, `debug_api.py`, `grace_gui_real.py`, `mock_server.py`, `prompt_session_router.py`, `service_registry.py`.
+- **Deleted 3 legacy assembly endpoints** (~395 lines): `GET /api/ai/assemble-console`, `GET /api/ai/assemble-session/{id}`, `GET+POST /api/ai/assemble-composer`. Frontend calls only `/api/ai/assemble-surface`. Live-verified: all now return 404.
+- **Hygiene:** duplicate `import json` removed; Sentry DSN moved from hardcoded source to `SENTRY_DSN` env var; `figma_service` import hoisted from mid-file (L3999) to top; duplicate `import os` in `__main__` block removed; duplicate `elapsed_ms` assignments removed from render-composer **and** render-session paths (previous entry claimed this was done — it wasn't); `assemble-surface` docstring corrected to describe the actual array-of-messages envelope.
+
+### Latent Runtime Bugs Fixed (would have 500'd when called)
+- **`REASONING_TRACE_PATH`** — referenced by `/api/reasoning/trace` but never defined anywhere in the codebase. Now defined (env-overridable, defaults to `backend/logs/reasoning_trace.json`).
+- **`/api/milvus/save`** — read `request.prompt_id`, which does not exist on `MilvusSaveRequest`. Fixed → `request.session_id`.
+
+### Zilliz Cloud Reconnection (`backend/.env`)
+- **MILVUS_URI + MILVUS_TOKEN + MILVUS_MODE=standalone saved permanently** (gitignored). Cluster `in03-5620992e020c852` (gcp-us-west1, Free-01).
+- **Verified live:** REST `list_collections` returns 8 collections (`memories`, `prompt_memory`, `default`, `prompt_versions`, `prompt_sessions`, `ai_actions`, `files`, `conversations`).
+- Root cause of "Milvus DISCONNECTED": creds were in **no** env file; `milvus_rest.connected()` was suppressing it with bare `except: return False`.
+
+### Database Confirmed — Local `railway` Is Source of Truth
+- Local PostgreSQL 15.14 (Homebrew), database literally named `railway` (name only — not the service). 42 tables, real data: 36 prompt_sessions, 4,907 prompt_versions, 7 conversations, 11 projects, 146 audit_logs. **Decision: local `railway` DB stays authoritative until site repair is complete; Northflank remote DB untouched (comparison pending).**
+
+### TRUE vs FAKE A2UI Audit Published (`READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md`)
+- Live-verified ledger separating real A2UI behavior from compliance theater: 11 TRUE items (unified endpoint, envelope shape, 503-no-fallback, DeepSeek live, chat bridge, Lit sandbox, image catalog, DB/Zilliz connections, purge) vs 14 FAKED items (deleted catalog validation, `eval()`/innerHTML, non-spec `surface` key, decorative component tree, catalogId mismatch, empty manifest, SQLite-mirror Milvus endpoints, fake `a2ui_response` XML, dormant tag registry, changelog copy-paste rot).
+- **Phase-2 remediation map included** (P2-1…P2-8): catalog validation restore, v0.9.1 version alignment, non-spec key removal, executable-code elimination, manifest generation, Milvus endpoint honesty, catalog↔emission agreement.
+
+### Verification (Live, This Session)
+- `python3 -m py_compile backend/main.py` — OK after every edit.
+- `RESTART-LOCAL.sh` — full boot, all fail-fast startup validations pass.
+- `GET /api/health` → `{"status":"ok","checks":{"database":"connected","milvus":"connected"}}` — **first time both green this session.**
+- `POST /api/ai/assemble-surface` `render-composer` → full v0.9 envelope in 2.3s with DeepSeek-generated title ("Prompt Catalyst").
+- Legacy endpoints → 404 across the board.
+
+### Next
+- **Phase 2:** execute P2-1…P2-8 from `READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md` (pure A2UI v0.9.1 restoration).
+- **Phase 3:** generic adjacency-list renderer + JSON Pointer binding (frontend).
+- **Phase 4:** docs rewrite, changelog dedup, `main.py` router split.
+
+---
+
 ## 2026-07-27: AI Console Assembly Restored + Chat-to-Surface Command Bridge
 
 ### AI Console Assembly Restored (`backend/main.py`)

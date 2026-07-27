@@ -1,7 +1,6 @@
 import json
 import os
 import time
-import json
 import sys
 import traceback
 from dotenv import load_dotenv
@@ -15,7 +14,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 
 sentry_sdk.init(
-    dsn="https://4fc990de77519c834c43e5193b7e6d7b@o4511728223256576.ingest.us.sentry.io/4511728235642880",
+    dsn=os.getenv("SENTRY_DSN", ""),
     environment=os.getenv("ENVIRONMENT", "production"),
     traces_sample_rate=0.3,
     enable_tracing=True,
@@ -49,12 +48,22 @@ from grace_memory_api import GraceMemoryAPI
 from prompt_sessions_api import PromptSessionsAPI
 from tag_extractor import TagExtractor
 from agent_rpc_handler import AgentRpcHandler
+from figma_service import (
+    get_file, get_file_versions, get_component, get_node,
+    get_dev_resources, search_file,
+)
 
 
 # ── Role-based access stubs ────────────────────────────────────────────
 # NOTE: Role-based access gated via user_is_admin() stub (dev mode allows all)
 ADMIN_ROLES = os.getenv("ADMIN_USER_IDS", "").split(",") if os.getenv("ADMIN_USER_IDS") else []
 DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "00000000-0000-0000-0000-000000000001")
+
+# Path to the reasoning trace JSON log consumed by /api/reasoning/trace
+REASONING_TRACE_PATH = os.getenv(
+    "REASONING_TRACE_PATH",
+    os.path.join(os.path.dirname(__file__), "logs", "reasoning_trace.json"),
+)
 
 def user_is_admin(user_id: str) -> bool:
     """Stub: check if user has admin privileges. Replace with DB lookup."""
@@ -78,7 +87,6 @@ app.add_middleware(
 )
 
 # Initialize services
-import api_core
 
 conversation_api = None
 projects_api = None
@@ -106,7 +114,6 @@ async def startup_event():
     # ── Conversation API ──────────────────────────────────────────────────
     try:
         conversation_api = ConversationAPI(database_url)
-        api_core.conversation_api = conversation_api
         # Immediate validation — prove it works before claiming success
         _test = conversation_api.get_all_conversations(
             user_id="00000000-0000-0000-0000-000000000000"
@@ -125,7 +132,6 @@ async def startup_event():
     # ── Projects API ──────────────────────────────────────────────────────
     try:
         projects_api = ProjectsAPI(database_url)
-        api_core.projects_api = projects_api
         _test = projects_api.get_all_projects(
             user_id="00000000-0000-0000-0000-000000000000"
         )
@@ -143,7 +149,6 @@ async def startup_event():
     # ── Memory API ────────────────────────────────────────────────────────
     try:
         memory_api = GraceMemoryAPI(database_url)
-        api_core.memory_api = memory_api
         _test = memory_api.list_memories(
             user_id="00000000-0000-0000-0000-000000000000", limit=1
         )
@@ -161,7 +166,6 @@ async def startup_event():
     # ── Prompt Sessions API ───────────────────────────────────────────────
     try:
         prompt_sessions_api = PromptSessionsAPI(database_url)
-        api_core.prompt_sessions_api = prompt_sessions_api
         # Validate with a real query — this catches lazy connection failures
         _test = prompt_sessions_api.get_sessions(
             user_id="00000000-0000-0000-0000-000000000000", limit=1
@@ -2694,401 +2698,6 @@ async def ai_manifest():
                 return {"manifest": json.load(f), "source": path}
     return {"manifest": {}, "source": "not found", "tags": ["ai-surface-sandbox", "agent-card", "chat-navigation-bar", "status-indicator", "control-bar"]}
 
-# ============================================
-# AI ASSEMBLY ENDPOINTS
-# The header tabs are AI commands, not webpage links.
-# When user clicks Console, they're commanding the AI to assemble the Console surface.
-# ============================================
-
-def get_prompt_sessions_api():
-    """Get the prompt_sessions_api instance for use by routers."""
-    return prompt_sessions_api
-
-
-@app.get("/api/ai/assemble-console")
-async def ai_assemble_console(
-    limit: int = Query(10, ge=1, le=200),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-):
-    """
-    STRICT A2UI: AI-driven Console assembly command.
-
-    NO FALLBACKS. The LLM MUST generate the response.
-    If LLM fails, this endpoint fails.
-
-    Flow:
-    1. Fetch raw session data from PostgreSQL
-    2. Send data to LLM with assembly prompt
-    3. LLM generates A2UI XML commands
-    4. Return LLM response to frontend
-    """
-    start_time = time.time()
-
-    if not prompt_sessions_api:
-        raise HTTPException(
-            status_code=503,
-            detail="A2UI FAILURE: Database not available",
-        )
-
-    uid = get_user_id_from_header(x_user_id)
-
-    try:
-        # Step 1: Fetch raw session data from PostgreSQL
-        sessions = prompt_sessions_api.get_sessions(
-            user_id=uid,
-            include_archived=False,
-            limit=limit,
-            offset=0,
-        )
-
-        # Step 2: Prepare session data for LLM
-        session_summaries = []
-        for session in sessions:
-            section_count = 0
-            try:
-                if session.get("left_column_content"):
-                    parsed = json.loads(session["left_column_content"])
-                    section_count = len(parsed.get("sections", []))
-            except:
-                pass
-
-            session_summaries.append({
-                "id": str(session.get("id")),
-                "title": session.get("title") or "Untitled",
-                "description": (session.get("compiled_output", "") or "")[:200],
-                "created_at": str(session.get("created_at")),
-                "last_accessed_at": str(session.get("last_accessed_at")),
-                "section_count": section_count,
-                "is_archived": session.get("is_archived", False),
-            })
-
-        # Step 3: Call LLM to assemble the console
-        llm_prompt = f"""Categorize these {len(session_summaries)} prompt agents into cards.
-
-Data:
-{json.dumps(session_summaries, indent=2)}
-
-Categories: Design System, Learning Module, Graphics, Writing, General
-
-Output ONLY this JSON (no XML, no markdown):
-{{"cards":[{{"id":"...","title":"...","category":"...","description":"...","status":"Active","version":1,"sectionCount":N,"lastUsed":"...","createdAt":"..."}}],"ai_message":"Welcome message"}}"""
-
-        # STRICT A2UI: LLM MUST respond - no fallback
-        llm_response = query_llm(
-            question=llm_prompt,
-            mode="console_assembly",
-            temperature=0.0,  # Deterministic for consistent UI
-            prompt_id="console-assembly"
-        )
-
-        if not llm_response or not llm_response.strip():
-            raise HTTPException(
-                status_code=503,
-                detail="A2UI FAILURE: LLM did not respond. AI must be active to render this surface."
-            )
-
-        # Step 4: Parse LLM response
-        try:
-            # Try to extract JSON from response
-            response_text = llm_response.strip()
-            # Handle markdown code blocks
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            parsed_response = json.loads(response_text)
-            cards = parsed_response.get("cards", [])
-            ai_message = parsed_response.get("ai_message", "Console assembled by AI")
-
-        except json.JSONDecodeError as e:
-            raise HTTPException(
-                status_code=503,
-                detail=f"A2UI FAILURE: LLM returned invalid JSON. Raw response: {llm_response[:500]}"
-            )
-
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
-        # Build A2UI XML response
-        cards_json = json.dumps(cards)
-        a2ui_xml = f"""<a2ui_surface>
-  <update_components component="console" props='{{"cards": {cards_json}, "count": {len(cards)}}}' />
-</a2ui_surface>"""
-
-        return {
-            "status": "ok",
-            "message": "Console assembled by AI",
-            "cards": cards,
-            "assembly_time_ms": elapsed_ms,
-            "ai_message": ai_message,
-            "a2ui_response": a2ui_xml,
-            "llm_used": True,  # Flag to confirm LLM was used
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=503,
-            detail=f"A2UI FAILURE: {str(e)}"
-        )
-
-
-@app.get("/api/ai/assemble-session/{session_id}")
-async def ai_assemble_session(
-    session_id: str,
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-):
-    """
-    STRICT A2UI: AI-driven Session assembly command.
-
-    NO FALLBACKS. The LLM MUST generate the assembly response.
-    If LLM fails, this endpoint fails.
-
-    Flow:
-    1. Fetch session data from PostgreSQL
-    2. Fetch Milvus context/versions
-    3. Send all data to LLM for intelligent assembly
-    4. Return LLM-generated response
-    """
-    start_time = time.time()
-
-    if not prompt_sessions_api:
-        raise HTTPException(
-            status_code=503,
-            detail="A2UI FAILURE: Database not available",
-        )
-
-    uid = get_user_id_from_header(x_user_id)
-
-    try:
-        # Step 1: Fetch session from PostgreSQL
-        session = prompt_sessions_api.get_session(user_id=uid, session_id=session_id)
-
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        # Step 2: Fetch Milvus versions for this session
-        milvus_versions = []
-        try:
-            milvus_versions = milvus_get_versions(prompt_id=session_id)
-        except Exception as e:
-            print(f"[AI Assembly] Milvus fetch warning: {e}")
-
-        # Step 3: Parse stored data
-        sections = []
-        try:
-            if session.get("left_column_content"):
-                parsed = json.loads(session["left_column_content"])
-                sections = parsed.get("sections", [])
-        except:
-            pass
-
-        # Step 4: Call LLM to assemble the session
-        session_data = {
-            "id": str(session_id),
-            "title": session.get("title"),
-            "sections": sections,
-            "compiled_output": (session.get("compiled_output") or "")[:1000],  # Truncate for prompt
-            "conversation_id": str(session.get("conversation_id")) if session.get("conversation_id") else None,
-            "version": session.get("current_version"),
-            "milvus_versions": len(milvus_versions),
-        }
-
-        llm_prompt = f"""You are assembling a Composer UI surface for an A2UI application.
-
-The user is opening session: {json.dumps(session_data, indent=2)}
-
-Generate A2UI XML commands to restore this session. The Composer has three columns:
-- Left: Section editor with {len(sections)} sections
-- Middle: Compiled output display
-- Right: Chat interface (conversation_id: {session.get('conversation_id')})
-
-Respond with ONLY valid JSON:
-{{
-  "status": "ok",
-  "session_id": "{session_id}",
-  "title": "{session.get('title')}",
-  "left_column": {{"sections": [...]}},
-  "middle_column": {{"compiled_output": "..."}},
-  "right_column": {{"conversation_id": "..."}},
-  "ai_message": "Your personalized message about restoring this session"
-}}"""
-
-        # STRICT A2UI: LLM MUST respond - no fallback
-        llm_response = query_llm(
-            question=llm_prompt,
-            mode="console_assembly",
-            temperature=0.0,
-            prompt_id="session-assembly"
-        )
-
-        if not llm_response or not llm_response.strip():
-            raise HTTPException(
-                status_code=503,
-                detail="A2UI FAILURE: LLM did not respond. AI must be active to render this surface."
-            )
-
-        # Step 5: Parse LLM response
-        parsed_response = {}
-        try:
-            response_text = llm_response.strip()
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            parsed_response = json.loads(response_text)
-
-        except json.JSONDecodeError:
-            # LLM response wasn't valid JSON, but we can still assemble from DB data
-            print(f"[AI Assembly] Warning: LLM returned non-JSON response, using fallback message")
-            parsed_response = {"ai_message": f"Opening session: {session.get('title')}"}
-
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
-        # Merge LLM response with raw data
-        return {
-            "status": "ok",
-            "session_id": str(session_id),
-            "title": session.get("title"),
-            "assembly_time_ms": elapsed_ms,
-            "llm_used": True,
-
-            "left_column": {
-                "sections": sections,
-                "raw_content": session.get("left_column_content"),
-            },
-            "middle_column": {
-                "compiled_output": session.get("compiled_output"),
-            },
-            "right_column": {
-                "conversation_id": str(session.get("conversation_id")) if session.get("conversation_id") else None,
-            },
-            "milvus": {
-                "versions": milvus_versions,
-                "version_count": len(milvus_versions),
-            },
-            "metadata": {
-                "version": session.get("current_version"),
-                "created_at": str(session.get("created_at")) if session.get("created_at") else None,
-                "updated_at": str(session.get("updated_at")) if session.get("updated_at") else None,
-            },
-            "ai_message": parsed_response.get("ai_message", f"Session '{session.get('title')}' assembled by AI"),
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to assemble session: {str(e)}"
-        )
-
-
-class AIAssembleComposerRequest(BaseModel):
-    """Request body for AI-driven composer assembly."""
-    action: str = "create_new"
-    title: Optional[str] = None
-
-
-@app.post("/api/ai/assemble-composer")
-@app.get("/api/ai/assemble-composer")
-async def ai_assemble_composer(
-    request: Optional[AIAssembleComposerRequest] = None,
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-):
-    """
-    STRICT A2UI: AI-driven Composer assembly command.
-
-    Creates a fresh A2UI Composer surface with empty sections.
-    Grace greets the user and prepares the workspace.
-    No database save - this is a blank slate until user saves.
-    """
-    start_time = time.time()
-
-    title = request.title if request else "New Prompt Agent"
-    action = request.action if request else "create_new"
-
-    # ── STRICT A2UI: Call LLM to generate greeting ──
-    llm_prompt = f"""You are Grace, the AI assistant for a prompt engineering workspace.
-The user just clicked "Create New" to start building a new prompt agent.
-
-Generate a warm, friendly greeting to welcome them to their fresh workspace.
-Be encouraging but concise (1-2 sentences).
-
-Output ONLY valid JSON:
-{{"ai_message": "Your greeting here", "suggested_title": "A creative suggested title for their new prompt"}}"""
-
-    ai_message = "Welcome! I've prepared a fresh workspace for you. What would you like to build today?"
-    suggested_title = title
-
-    try:
-        llm_response = query_llm(
-            question=llm_prompt,
-            mode="console_assembly",
-            temperature=0.7,  # Some creativity for greeting
-            prompt_id="composer-assembly"
-        )
-
-        if llm_response and llm_response.strip():
-            response_text = llm_response.strip()
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            try:
-                parsed = json.loads(response_text)
-                ai_message = parsed.get("ai_message", ai_message)
-                suggested_title = parsed.get("suggested_title", suggested_title)
-            except json.JSONDecodeError:
-                # Use the raw response as the message if not valid JSON
-                ai_message = llm_response.strip()[:200]
-    except Exception as e:
-        print(f"[AI Assembly] LLM greeting warning: {e}")
-        # Fallback greeting if LLM fails
-
-    elapsed_ms = int((time.time() - start_time) * 1000)
-
-    return {
-        "status": "ok",
-        "action": action,
-        "assembly_time_ms": elapsed_ms,
-        "llm_used": True,
-
-        # Empty left column - fresh sections with standard prompt roles
-        "left_column": {
-            "sections": [
-                {"name": "System Role", "type": "system", "content": "", "position": 0},
-                {"name": "User Role", "type": "user", "content": "", "position": 1},
-            ],
-        },
-
-        # Empty middle column
-        "middle_column": {
-            "compiled_output": "",
-            "output_type": None,
-        },
-
-        # Empty right column - no conversation yet
-        "right_column": {
-            "conversation_id": None,
-        },
-
-        # Suggested title from AI
-        "suggested_title": suggested_title,
-
-        # Grace's greeting - this goes in the chat panel
-        "ai_message": ai_message,
-        "grace_greeting": True,  # Flag to indicate this should appear as Grace in chat
-    }
-
-
 class AISurfaceContext(BaseModel):
     """Context from the current document state."""
     current_surface: Optional[str] = None
@@ -3126,15 +2735,13 @@ async def ai_assemble_surface(
     This is the SINGLE endpoint that controls ALL surface rendering.
     The AI is the Architect - it decides what to show.
 
-    Response follows A2UI Envelope structure:
-    {
-        "surfaceId": "main",
-        "operations": [
-            { "type": "createSurface", "catalogId": "impromptu-catalog" },
-            { "type": "updateComponents", "components": [...] },
-            { "type": "beginRendering", "rootId": "root" }
-        ]
-    }
+    Response follows the A2UI v0.9 envelope structure — an array of
+    protocol messages, each carrying exactly one operation key:
+    [
+        { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "..." } },
+        { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } },
+        { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
+    ]
     """
     start_time = time.time()
     intent = request.intent
@@ -3389,8 +2996,6 @@ Output ONLY valid JSON:
         print(f"  Remainder (other):                          {elapsed_ms - ms_a - ms_b - ms_c:8.1f}ms")
         print(f"{'='*60}\n")
 
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
         # Default sections for blank composer
         default_sections = [
             {"name": "System Role", "type": "system", "content": "", "position": 0},
@@ -3538,8 +3143,6 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
         print(f"  Milestone C (Validation - JSON parse):        {ms_c:8.1f}ms")
         print(f"  Remainder (other):                            {elapsed_ms - ms_a - ms_b - ms_c:8.1f}ms")
         print(f"{'='*60}\n")
-
-        elapsed_ms = int((time.time() - start_time) * 1000)
 
         # ═══════════════════════════════════════════════════════════════
         # A2UI v0.9 ENVELOPE RESPONSE
@@ -3996,11 +3599,6 @@ async def api_admin_audit_logs(
 # FIGMA API ENDPOINTS
 # ============================================
 
-from figma_service import (
-    get_file, get_file_versions, get_component, get_node,
-    get_dev_resources, search_file,
-)
-
 class FigmaQueryRequest(BaseModel):
     file_key: str
     query: Optional[str] = None
@@ -4130,7 +3728,7 @@ async def api_milvus_save(request: MilvusSaveRequest):
             f"{request.output}"
         )
         result = milvus_save_version(
-            prompt_id=request.prompt_id or "unknown",
+            prompt_id=request.session_id or "unknown",
             content=workspace,
         )
         return {"status": "ok", "version": result}
@@ -4422,7 +4020,6 @@ if os.path.isdir(frontend_dist):
 
 if __name__ == "__main__":
     import uvicorn
-    import os
 
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
