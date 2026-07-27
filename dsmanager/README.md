@@ -1,4 +1,4 @@
-# Raibach Design System Lifecycle Management — {impromptu}
+# Semantic Design System Lifecycle Management 
 
 > **One surface. Any payload. The AI is the Architect.**
 
