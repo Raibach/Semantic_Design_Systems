@@ -2,25 +2,6 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
-## 2026-07-27: AI Console Assembly Restored + Chat-to-Surface Command Bridge
-
-### AI Console Assembly Restored (`backend/main.py`)
-- **`render-console` path reconnected to `query_llm()`** — DeepSeek V4 Flash assembles console card grid via A2UI catalog. Session summaries (id, title, description, category) flow from PostgreSQL lightweight query → AI → A2UI envelope.
-- **Description truncation removed** — full descriptions flow through. Previously clipped at 100 chars.
-- **UnboundLocalError fixed** across all three assembly paths (console, composer, session) — `ms_b` and `ms_c` initialized to `0.0` before every `query_llm()` call.
-
-### Missing Route Restored (`backend/conversation_api.py` + `main.py`)
-- **`GET /api/prompt-sessions/{id}/conversations`** — new endpoint returns conversations linked to a session via JOIN on `conversation_id`. Eliminates the 404 error the frontend was hitting on session open.
-- **`get_conversations_by_session()`** method added to `conversation_api.py`.
-
-### Lit Catalog Card Confirmed Active (`frontend/src/components/PromptDashboardCanvas.tsx`)
-- **Console cards ARE Lit `agent-card-element`** — rendered via `React.createElement('agent-card-element', {...})` inside `FlipCard` wrapper. Front shows Lit template (SVG background, molecule logo, category badge, title, description, bottom bar with version/status/likes). Back shows `CardBack` details. Single-click flips, double-click opens session.
-- **FlipCard wrapper preserved** — not removed. The Lit component is the card; FlipCard provides the flip interaction only.
-
-### Character Count + Categories (`agent-card-element.ts` + PostgreSQL)
-- **Description line-clamp increased from 2 to 4** in `.slot-d-desc` CSS.
-- **35 sessions assigned random categories** (Writing, Design System, Learning Module, Graphics, General) directly in PostgreSQL. Cards now show varied category badges instead of all defaulting to "Design System."
-
 ### Chat-to-Surface Command Bridge
 - **New XML tag registered: `<reassemble-console sort="..." filter="..."/>`** — AI can emit this tag in chat responses to re-order/re-filter the console card grid.
 - **`InteractiveChatInterface.tsx`**: Tag parser extracts sort/filter attributes and dispatches `a2ui:console-command` CustomEvent.
