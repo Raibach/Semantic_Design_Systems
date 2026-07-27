@@ -312,7 +312,7 @@ export const conversationStorage = {
       const params = new URLSearchParams();
       if (tab && tab !== 'chat') params.append('tab', tab);
       const queryString = params.toString() ? `?${params.toString()}` : '';
-      const response = await apiCall(`/sessions/${sessionId}/conversations${queryString}`);
+      const response = await apiCall(`/prompt-sessions/${sessionId}/conversations${queryString}`);
       const backendConvs = response.conversations || [];
       return backendConvs.map(backendConversationToFrontendLightweight);
     } catch (error) {
