@@ -23,6 +23,9 @@ COPY dsmanager/frontend/dist ./frontend/dist
 # Copy pre-built Storybook documentation
 COPY dsmanager/frontend/storybook-static ./frontend/storybook-static
 
+# Copy frontend source (A2UI component catalog required by backend at runtime)
+COPY dsmanager/frontend/src ./frontend/src
+
 # Expose port
 EXPOSE 5001
 
