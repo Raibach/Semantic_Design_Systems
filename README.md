@@ -1,4 +1,4 @@
-# Design System Lifecycle Management
+# Semantic Design System Lifecycle Management
 
 > *"Agentic Design System Collaboraiton for Non-designers"*
 
