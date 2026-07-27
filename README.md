@@ -1,4 +1,4 @@
-# Raibach Design System Lifecycle Management
+# Design System Lifecycle Management
 
 > *"Agentic Design System Collaboraiton for Non-designers"*
 
