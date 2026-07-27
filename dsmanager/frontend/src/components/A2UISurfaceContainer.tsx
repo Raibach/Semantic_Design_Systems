@@ -48,13 +48,16 @@ interface A2UISurfaceContainerProps {
  * />
  * ```
  * 
- * AI CAN:
+ * AI CAN (A2UI v0.9.1 — declarative only, NO executable code):
  * - Render custom components via <project-card-element id="..." name="..." />
- * - Inject HTML content via <set-html content="..." />
  * - Update text via <set-text content="..." />
  * - Clear output via <clear-surface />
- * - Add buttons via <add-button label="..." onclick="..." />
+ * - Add buttons via <add-button label="..." action="intent-name" />
+ *   (buttons dispatch a2ui:action events — never eval'd inline code)
  * - Render live data, status indicators, forms, etc.
+ *
+ * REMOVED: <set-html> and <append-html> — raw innerHTML injection is a
+ * protocol violation (spec: "declarative JSON, not executable code").
  * 
  * This gives agents full control over what users see in the output window.
  */
@@ -110,14 +113,11 @@ export function A2UISurfaceContainer({
         console.log(`[A2UISurfaceContainer] Mounted ${result.tag}:`, command.props);
       }
 
-      // ── HTML INJECTION: Set arbitrary HTML content ──
+      // ── SET-HTML BLOCKED (A2UI v0.9.1) ──
+      // Raw HTML injection is executable code — forbidden by the protocol.
+      // Use <set-text> for text or a registered catalog component for markup.
       if (command.tag === 'set-html' || command.command === 'set-html') {
-        const html = String(command.props.content || '');
-        if (containerRef.current) {
-          containerRef.current.innerHTML = html;
-          onContentChange?.(html);
-          console.log('[A2UISurfaceContainer] Set HTML content');
-        }
+        console.warn('[A2UISurfaceContainer] BLOCKED <set-html>: raw HTML injection is not allowed under A2UI v0.9.1. Emit <set-text> or a catalog component instead.');
       }
 
       // ── TEXT INJECTION: Set text content ──
@@ -130,20 +130,19 @@ export function A2UISurfaceContainer({
         }
       }
 
-      // ── BUTTON INJECTION: Add clickable button ──
+      // ── BUTTON INJECTION: Add clickable button (declarative actions only) ──
       if (command.tag === 'add-button' || command.command === 'add-button') {
         const btn = document.createElement('button');
         btn.textContent = String(command.props.label || 'Click me');
         btn.className = 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors mb-2 mr-2';
+        // A2UI v0.9.1: NO eval — ever. Buttons dispatch a declarative action
+        // event; shell listeners map action names to real intents.
         btn.onclick = () => {
-          if (command.props.onclick) {
-            try {
-              // eslint-disable-next-line no-eval
-              eval(String(command.props.onclick));
-            } catch (e) {
-              console.error('[A2UISurfaceContainer] Button onclick error:', e);
-            }
-          }
+          const actionName = String(command.props.action || command.props.onclick || 'unknown');
+          console.log(`[A2UISurfaceContainer] Action dispatched: ${actionName}`);
+          window.dispatchEvent(new CustomEvent('a2ui:action', {
+            detail: { name: actionName, props: command.props, sessionId },
+          }));
         };
         if (containerRef.current) {
           containerRef.current.appendChild(btn);
@@ -152,16 +151,9 @@ export function A2UISurfaceContainer({
         }
       }
 
-      // ── APPEND CONTENT: Add HTML to existing content ──
+      // ── APPEND-HTML BLOCKED (A2UI v0.9.1) ──
       if (command.tag === 'append-html' || command.command === 'append-html') {
-        const div = document.createElement('div');
-        div.innerHTML = String(command.props.content || '');
-        div.setAttribute('data-ai-appended', 'true');
-        if (containerRef.current) {
-          containerRef.current.appendChild(div);
-          onContentChange?.(containerRef.current.innerHTML);
-          console.log('[A2UISurfaceContainer] Appended HTML');
-        }
+        console.warn('[A2UISurfaceContainer] BLOCKED <append-html>: raw HTML injection is not allowed under A2UI v0.9.1.');
       }
 
       // ── REMOVE COMPONENT ──

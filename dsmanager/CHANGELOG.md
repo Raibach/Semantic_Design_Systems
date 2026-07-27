@@ -2,6 +2,56 @@
 
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
+## 2026-07-27 (PM2): Phase 2 — Pure A2UI v0.9.1 Restoration — COMPLETE ✅
+
+All 8 remediation items (P2-1…P2-8) from `READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md` executed and **verified live**. The system is now honestly A2UI v0.9.1: zero-trust catalog validation is real, envelopes are spec-shaped, and no executable code paths remain.
+
+### P2-1 — Zero-Trust Catalog Validation Restored (`backend/main.py`)
+- Catalog loads at startup: log line `✅ A2UI Catalog loaded — 20 trusted components` (fail-fast `sys.exit(1)` if missing).
+- `validate_a2ui_components()` runs on **all 4 return points** of `/api/ai/assemble-surface` (decision, console, composer, session). Unknown component or missing `id` → **HTTP 503 with the spec's `VALIDATION_FAILED` error format** (`{code, surfaceId, path, message}` per SPECIFICATIONS.md §1). This restores the validation the 2026-07-22 entry claimed that was later silently deleted.
+
+### P2-2 — v0.9.1 Version + catalogId Alignment (`backend/main.py`)
+- All 15 envelope messages: `"version": "v0.9"` → `"v0.9.1"`.
+- All 4 `createSurface` ops: `catalogId` unified to the catalog's own `$id` — `https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json` (was the mismatched `impromptu.raibach.net/...`).
+
+### P2-3 — Non-Spec `surface` Key Removed (backend + frontend)
+- Backend envelopes carry only spec keys (`surfaceId`, `components`, `path`, `value`). Live-verified: `non-spec surface key present: False`.
+- `WritingAreaIndex.tsx` now **infers the view from the data model**: `decision_type` → decision dialog, `cards` → console grid, `session` → composer. No custom envelope fields anywhere.
+
+### P2-4 — Executable Code Eliminated (`A2UISurfaceContainer.tsx`)
+- **`eval()` deleted.** AI-supplied button onclick was executed with `eval()` — a direct protocol violation and XSS hole. Buttons now dispatch declarative `a2ui:action` CustomEvents (`{name, props, sessionId}`) for shell listeners to map to intents.
+- **`<set-html>` / `<append-html>` blocked.** Raw `innerHTML` injection replaced with loud warnings directing the AI to `<set-text>` or catalog components.
+
+### P2-5 — Fake `a2ui_response` XML Retired (`backend/main.py`)
+- The `<a2ui_surface><update_components>…` XML-wrapping-JSON field removed from `/api/ai/save-surface` (zero frontend consumers — grep-verified before deletion).
+
+### P2-6 — Milvus Honesty (Zilliz Cloud, fail-loud)
+- `/api/milvus/info|collections|vectors` now query **Zilliz Cloud live** via REST (was: local SQLite mirror returning empty lists). Verified: 8 collections, all `LoadStateLoaded` with vector indexes.
+- `milvus_rest.py` rewritten **fail-loud**: no `except: return False`; raises on missing `MILVUS_URI`; added `describe_collection()` + `query()`. `milvus_sqlite.py` **deleted**.
+- **Bonus latent fixes:** `backend/config.py` embedding config aligned to reality — `EMBEDDING_DIMENSION=384`, `EMBEDDING_MODEL=BAAI/bge-small-en` (was 1536 / `text-embedding-ada-002`, which silently killed the embedder); `grace_gui.py` Zilliz client now passes `MILVUS_TOKEN` (was token-less → silent auth failure on every save).
+
+### P2-7 — Real Manifest Served (`frontend/dist/manifest.json`)
+- `tsx scripts/generate-manifest.mjs` → 15,244-byte manifest from the live Zod tag-registry. `/api/ai/manifest` serves it — no more `{"manifest": {}, "source": "not found"}` fallback.
+
+### P2-8 — Catalog ↔ Emission Agreement (`component-catalog.json`)
+- Registered the 6 components the backend actually emits, with spec-mandated typing: `ConsoleCardGrid`, `DecisionDialog`, `ActionGroup`, `SectionEditor`, `CompiledOutput`, `ChatPanel` (list refs use `ChildList`, content refs use `DynamicString` per validator-compliance rules). `greeting` added to Text variant enum. Catalog: 14 → **20 components**; `anyComponent` discriminator updated.
+
+### RESTART-LOCAL.sh — Verified Accurate
+- All 8 steps match the current architecture: `.env`/`.venv` checks, local PostgreSQL 15 (`railway` DB) validation via `database_pool`, port-5173 kill, env export (current values xargs-safe), `uvicorn main:app`, SPA serving from `frontend/dist`, respond check. No changes required.
+
+### Verification (Live, This Session)
+- Startup: `✅ A2UI Catalog loaded — 20 trusted components`; all fail-fast DB validations pass.
+- `render-composer` + `render-console`: `version=v0.9.1`, catalog-validated components (`Column/SectionEditor/CompiledOutput/ChatPanel`, `Column/Text/ConsoleCardGrid`), zero non-spec keys, 10 real DeepSeek cards from PostgreSQL.
+- `GET /api/health` → `{"status":"ok","checks":{"database":"connected","milvus":"connected"}}`.
+- `GET /api/milvus/info` → `{"mode":"zilliz-cloud","collection_count":8}`.
+- `tsc --noEmit` on frontend → exit 0. `py_compile` on all touched backend files → OK.
+
+### Next
+- **Phase 3:** generic adjacency-list renderer + JSON Pointer data binding (`DynamicString`/`{"path"}` resolution, `ChildList` templates, client→server `action` messages) — resolves F5/F6/F12 remnants.
+- **Phase 4:** docs rewrite (stale READ-ME files), changelog dedup (5× copy-pasted Verification blocks), `main.py` router split.
+
+---
+
 ## 2026-07-27 (PM): Dead-Code Purge, Zilliz Reconnection + TRUE/FAKE Audit — COMPLETE ✅
 
 ### Specifications Reference Created (`SPECIFICATIONS.md`)

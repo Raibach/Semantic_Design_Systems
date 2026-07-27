@@ -1243,19 +1243,26 @@ export default function Index({
       const envelope = Array.isArray(rawData) ? rawData : [rawData];
 
       // Extract data from A2UI envelope operations
-      let surface = 'console';
       let dataModel: any = {};
 
       for (const operation of envelope) {
-        if (operation.updateComponents) {
-          surface = operation.updateComponents.surface || 'console';
-          console.log(`🤖 [A2UI] Surface type from envelope: ${surface}`);
-        }
         if (operation.updateDataModel) {
           dataModel = operation.updateDataModel.value || {};
           console.log(`🤖 [A2UI] Data model received:`, Object.keys(dataModel));
         }
       }
+
+      // A2UI v0.9.1: the envelope carries no non-spec "surface" key.
+      // The view is inferred from the data model itself: decision payload →
+      // decision dialog, cards → console grid, session payload → composer.
+      const surface = dataModel.decision_type
+        ? 'decision'
+        : Array.isArray(dataModel.cards)
+          ? 'console'
+          : dataModel.session
+            ? 'composer'
+            : 'console';
+      console.log(`🤖 [A2UI] Surface inferred from data model: ${surface}`);
 
       const assemblyTime = dataModel.assembly_time_ms || 0;
       const aiMessage = dataModel.ai_message || '';

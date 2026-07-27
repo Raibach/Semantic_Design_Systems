@@ -65,6 +65,62 @@ REASONING_TRACE_PATH = os.getenv(
     os.path.join(os.path.dirname(__file__), "logs", "reasoning_trace.json"),
 )
 
+# ── A2UI v0.9.1 Trusted Component Catalog ──────────────────────────────
+# Zero-trust: every updateComponents payload emitted by this server is
+# validated against the catalog BEFORE reaching the client. A component
+# that is not in the catalog is a server bug and fails loud (503).
+A2UI_CATALOG_ID = "https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json"
+_A2UI_CATALOG_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "frontend", "src", "components", "A2UI", "component-catalog.json"
+)
+a2ui_catalog: Dict[str, Any] = {}
+try:
+    with open(_A2UI_CATALOG_PATH, "r") as _catalog_file:
+        a2ui_catalog = json.load(_catalog_file)
+    print(f"✅ A2UI Catalog loaded — {len(a2ui_catalog.get('components', {}))} trusted components")
+except Exception as _catalog_error:
+    print(
+        f"❌ CRITICAL: A2UI component catalog failed to load from {_A2UI_CATALOG_PATH}: {_catalog_error}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def validate_a2ui_components(components: List[Dict[str, Any]]) -> None:
+    """
+    Zero-trust validation of an updateComponents payload against the catalog.
+
+    Implements the spec's prompt → generate → validate loop contract (SPECIFICATIONS.md
+    §1 — Standard validation error format): any component whose type is not
+    registered in the trusted catalog is rejected with VALIDATION_FAILED.
+    Raises HTTPException(503) — never passes invalid UI to the client.
+    """
+    allowed = set(a2ui_catalog.get("components", {}).keys())
+    for index, comp in enumerate(components):
+        if not comp.get("id"):
+            detail = {
+                "error": {
+                    "code": "VALIDATION_FAILED",
+                    "surfaceId": "main",
+                    "path": f"/components/{index}/id",
+                    "message": "Component is missing the required 'id' field",
+                }
+            }
+            print(f"❌ [A2UI VALIDATION FAILED] {detail}", file=sys.stderr)
+            raise HTTPException(status_code=503, detail=detail)
+        name = comp.get("component")
+        if name not in allowed:
+            detail = {
+                "error": {
+                    "code": "VALIDATION_FAILED",
+                    "surfaceId": "main",
+                    "path": f"/components/{index}/component",
+                    "message": f"Component '{name}' is not in the trusted catalog",
+                }
+            }
+            print(f"❌ [A2UI VALIDATION FAILED] {detail}", file=sys.stderr)
+            raise HTTPException(status_code=503, detail=detail)
+
 def user_is_admin(user_id: str) -> bool:
     """Stub: check if user has admin privileges. Replace with DB lookup."""
     if not ADMIN_ROLES:
@@ -2738,9 +2794,9 @@ async def ai_assemble_surface(
     Response follows the A2UI v0.9 envelope structure — an array of
     protocol messages, each carrying exactly one operation key:
     [
-        { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "..." } },
-        { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } },
-        { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
+        { "version": "v0.9.1", "createSurface": { "surfaceId": "main", "catalogId": "..." } },
+        { "version": "v0.9.1", "updateComponents": { "surfaceId": "main", "components": [...] } },
+        { "version": "v0.9.1", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
     ]
     """
     start_time = time.time()
@@ -2756,28 +2812,29 @@ async def ai_assemble_surface(
     if context and context.has_unsaved_changes and context.current_surface == "composer":
         elapsed_ms = int((time.time() - start_time) * 1000)
         session_title = context.session_title or "Untitled"
+        components = [
+            {"id": "root", "component": "DecisionDialog", "children": ["message", "actions"]},
+            {"id": "message", "component": "Text", "text": f"You have unsaved changes in \"{session_title}\"."},
+            {"id": "actions", "component": "ActionGroup", "items": {"path": "/actions"}}
+        ]
+        validate_a2ui_components(components)
         return [
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "createSurface": {
                     "surfaceId": "main",
-                    "catalogId": "https://impromptu.raibach.net/a2ui/catalog.json"
+                    "catalogId": A2UI_CATALOG_ID
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateComponents": {
                     "surfaceId": "main",
-                    "surface": "decision",  # Special surface type for AI decisions
-                    "components": [
-                        {"id": "root", "component": "DecisionDialog", "children": ["message", "actions"]},
-                        {"id": "message", "component": "Text", "text": f"You have unsaved changes in \"{session_title}\"."},
-                        {"id": "actions", "component": "ActionGroup", "items": {"path": "/actions"}}
-                    ]
+                    "components": components
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateDataModel": {
                     "surfaceId": "main",
                     "path": "/",
@@ -2893,28 +2950,29 @@ async def ai_assemble_surface(
         # A2UI v0.9 ENVELOPE RESPONSE
         # Array of protocol messages: createSurface, updateComponents, updateDataModel
         # ═══════════════════════════════════════════════════════════════
+        components = [
+            {"id": "root", "component": "Column", "children": ["header", "card-grid"]},
+            {"id": "header", "component": "Text", "text": ai_message, "variant": "greeting"},
+            {"id": "card-grid", "component": "ConsoleCardGrid", "items": {"path": "/cards"}}
+        ]
+        validate_a2ui_components(components)
         return [
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "createSurface": {
                     "surfaceId": "main",
-                    "catalogId": "https://impromptu.raibach.net/a2ui/catalog.json"
+                    "catalogId": A2UI_CATALOG_ID
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateComponents": {
                     "surfaceId": "main",
-                    "surface": "console",  # Frontend uses this to know which view
-                    "components": [
-                        {"id": "root", "component": "Column", "children": ["header", "card-grid"]},
-                        {"id": "header", "component": "Text", "text": ai_message, "variant": "greeting"},
-                        {"id": "card-grid", "component": "ConsoleCardGrid", "items": {"path": "/cards"}}
-                    ]
+                    "components": components
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateDataModel": {
                     "surfaceId": "main",
                     "path": "/",
@@ -3006,29 +3064,30 @@ Output ONLY valid JSON:
         # A2UI v0.9 ENVELOPE RESPONSE
         # Array of protocol messages: createSurface, updateComponents, updateDataModel
         # ═══════════════════════════════════════════════════════════════
+        components = [
+            {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
+            {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
+            {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
+            {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
+        ]
+        validate_a2ui_components(components)
         return [
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "createSurface": {
                     "surfaceId": "main",
-                    "catalogId": "https://impromptu.raibach.net/a2ui/catalog.json"
+                    "catalogId": A2UI_CATALOG_ID
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateComponents": {
                     "surfaceId": "main",
-                    "surface": "composer",  # Frontend uses this to know which view
-                    "components": [
-                        {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
-                        {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
-                        {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
-                        {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
-                    ]
+                    "components": components
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateDataModel": {
                     "surfaceId": "main",
                     "path": "/",
@@ -3148,29 +3207,30 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
         # A2UI v0.9 ENVELOPE RESPONSE
         # Array of protocol messages: createSurface, updateComponents, updateDataModel
         # ═══════════════════════════════════════════════════════════════
+        components = [
+            {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
+            {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
+            {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
+            {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
+        ]
+        validate_a2ui_components(components)
         return [
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "createSurface": {
                     "surfaceId": "main",
-                    "catalogId": "https://impromptu.raibach.net/a2ui/catalog.json"
+                    "catalogId": A2UI_CATALOG_ID
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateComponents": {
                     "surfaceId": "main",
-                    "surface": "composer",  # Frontend uses this to know which view
-                    "components": [
-                        {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
-                        {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
-                        {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
-                        {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
-                    ]
+                    "components": components
                 }
             },
             {
-                "version": "v0.9",
+                "version": "v0.9.1",
                 "updateDataModel": {
                     "surfaceId": "main",
                     "path": "/",
@@ -3536,12 +3596,6 @@ Compiled Prompt:
             "ai_description": ai_compilation.get("description") if ai_compilation else None,
             "ai_suggested_title": ai_compilation.get("suggested_title") if ai_compilation else None,
             "ai_tags": ai_tags if ai_tags else None,
-            # A2UI response - XML envelope with JSON payload
-            "a2ui_response": f"""<a2ui_surface>
-  <update_components>
-    {{"component": "save-button", "props": {{"status": "success", "message": "{ai_message}"}}}}
-  </update_components>
-</a2ui_surface>"""
         }
 
     except HTTPException:
@@ -3673,38 +3727,60 @@ async def api_figma_config():
 
 @app.get("/api/milvus/info")
 async def api_milvus_info():
-    """Get Milvus database metadata and collection stats."""
-    try:
-        from milvus_sqlite import get_db_info
-        return get_db_info()
-    except Exception as e:
-        return {"error": str(e), "exists": False}
+    """Get Zilliz Cloud cluster metadata and live collection stats."""
+    from milvus_rest import MilvusREST
+    rest = MilvusREST()
+    collections = rest.list_collections()
+    stats = []
+    for name in collections:
+        try:
+            desc = rest.describe_collection(name)
+            data = desc.get("data", desc) if isinstance(desc, dict) else {}
+            stats.append({
+                "name": name,
+                "loaded": data.get("load", "unknown"),
+                "indexes": [i.get("fieldName") for i in data.get("indexes", [])],
+            })
+        except Exception as e:
+            stats.append({"name": name, "error": str(e)})
+    return {
+        "exists": True,
+        "mode": "zilliz-cloud",
+        "collection_count": len(collections),
+        "collections": stats,
+    }
 
 @app.get("/api/milvus/collections")
 async def api_milvus_collections():
-    """List all Milvus collections."""
-    try:
-        from milvus_sqlite import list_collections, get_collection_stats
-        return {
-            "collections": list_collections(),
-            "stats": get_collection_stats(),
-        }
-    except Exception as e:
-        return {"error": str(e), "collections": []}
+    """List all collections in the Zilliz Cloud cluster (live)."""
+    from milvus_rest import MilvusREST
+    rest = MilvusREST()
+    collections = rest.list_collections()
+    stats = []
+    for name in collections:
+        try:
+            desc = rest.describe_collection(name)
+            data = desc.get("data", desc) if isinstance(desc, dict) else {}
+            stats.append({
+                "name": name,
+                "loaded": data.get("load", "unknown"),
+                "fields": [f.get("name") for f in data.get("fields", [])],
+            })
+        except Exception as e:
+            stats.append({"name": name, "error": str(e)})
+    return {"collections": collections, "stats": stats}
 
 @app.get("/api/milvus/vectors/{collection}")
 async def api_milvus_vectors(collection: str, limit: int = 50, offset: int = 0):
-    """Retrieve vectors from a specific Milvus collection."""
-    try:
-        from milvus_sqlite import search_vectors
-        vectors = search_vectors(collection, limit=limit, offset=offset)
-        return {
-            "collection": collection,
-            "count": len(vectors),
-            "vectors": vectors,
-        }
-    except Exception as e:
-        return {"error": str(e), "collection": collection, "vectors": []}
+    """Retrieve entities from a specific Zilliz Cloud collection (live query)."""
+    from milvus_rest import MilvusREST
+    rest = MilvusREST()
+    entities = rest.query(collection, limit=limit, offset=offset)
+    return {
+        "collection": collection,
+        "count": len(entities),
+        "vectors": entities,
+    }
 
 
 class MilvusSaveRequest(BaseModel):

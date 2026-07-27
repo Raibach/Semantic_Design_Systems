@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json",
   "title": "Raibach Prompt Composer Catalog",
-  "description": "Custom A2UI v0.9.1 catalog for the Raibach Design System Lifecycle Management platform. 14 trusted components — 6 from the A2UI Basic Catalog plus 8 project-specific Lit/React components. Agent can only render components from this allowlist.",
+  "description": "Custom A2UI v0.9.1 catalog for the Raibach Design System Lifecycle Management platform. 20 trusted components — 6 from the A2UI Basic Catalog plus 14 project-specific Lit/React components. Agent can only render components from this allowlist.",
   "catalogId": "https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json",
   "components": {
     "Text": {
@@ -20,8 +20,8 @@
             },
             "variant": {
               "type": "string",
-              "description": "A hint for the base text style.",
-              "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body"],
+              "description": "A hint for the base text style. 'greeting' is the Grace welcome-message style used at the top of assembled surfaces.",
+              "enum": ["h1", "h2", "h3", "h4", "h5", "caption", "body", "greeting"],
               "default": "body"
             }
           },
@@ -424,6 +424,126 @@
         }
       ],
       "unevaluatedProperties": false
+    },
+    "ConsoleCardGrid": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Console card grid. Renders one Lit <agent-card-element> per item in the bound cards list (data model /cards). Backed by LitCardGrid + PromptDashboardCanvas in the React shell.",
+          "properties": {
+            "component": { "const": "ConsoleCardGrid" },
+            "items": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Data-bound list of agent cards. Object form: {\"path\": \"/cards\", \"componentId\": \"agent-card-template\"}."
+            }
+          },
+          "required": ["component", "items"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "DecisionDialog": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "AI decision surface — shown when the agent needs user confirmation before proceeding (e.g. unsaved changes). Contains a Text message and an ActionGroup of choices.",
+          "properties": {
+            "component": { "const": "DecisionDialog" },
+            "children": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Static child references: [messageText, actionGroup]."
+            }
+          },
+          "required": ["component", "children"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ActionGroup": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Row of action buttons for a DecisionDialog. Renders one Button per item in the bound actions list (each item: {id, label, variant}).",
+          "properties": {
+            "component": { "const": "ActionGroup" },
+            "items": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Data-bound list of action descriptors. Object form: {\"path\": \"/actions\", \"componentId\": \"action-button-template\"}."
+            }
+          },
+          "required": ["component", "items"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "SectionEditor": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Left-column prompt section editor (composer). Renders the ordered prompt sections (System Role, User Role, Tool Call, Few Shot, Context, Constraints + customs) from the bound sections list. Backed by PromptWorkspace/ResponsivePromptBuilderWithDnD.",
+          "properties": {
+            "component": { "const": "SectionEditor" },
+            "sections": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ChildList",
+              "description": "Data-bound list of prompt sections. Object form: {\"path\": \"/session/left_column/sections\", \"componentId\": \"prompt-section-template\"}."
+            }
+          },
+          "required": ["component", "sections"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "CompiledOutput": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Middle-column compiled output panel. Displays the assembled/executed prompt output (markdown). Backed by MiddleColumnSlot.",
+          "properties": {
+            "component": { "const": "CompiledOutput" },
+            "content": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The compiled output content (Markdown supported). Typically bound to /session/middle_column/compiled_output."
+            }
+          },
+          "required": ["component", "content"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ChatPanel": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/ComponentCommon" },
+        { "$ref": "#/$defs/CatalogComponentCommon" },
+        {
+          "type": "object",
+          "description": "Right-column chat panel — the surface command interface. Conversation scoped to the bound conversation id. Backed by InteractiveChatInterface.",
+          "properties": {
+            "component": { "const": "ChatPanel" },
+            "conversationId": {
+              "$ref": "https://a2ui.org/specification/v0_9/common_types.json#/$defs/DynamicString",
+              "description": "The conversation this chat panel is scoped to. Typically bound to /session/right_column/conversation_id."
+            }
+          },
+          "required": ["component", "conversationId"]
+        }
+      ],
+      "unevaluatedProperties": false
     }
   },
   "$defs": {
@@ -471,7 +591,13 @@
         { "$ref": "#/components/prompt-section" },
         { "$ref": "#/components/output-panel" },
         { "$ref": "#/components/version-trace" },
-        { "$ref": "#/components/chat-navigation-bar" }
+        { "$ref": "#/components/chat-navigation-bar" },
+        { "$ref": "#/components/ConsoleCardGrid" },
+        { "$ref": "#/components/DecisionDialog" },
+        { "$ref": "#/components/ActionGroup" },
+        { "$ref": "#/components/SectionEditor" },
+        { "$ref": "#/components/CompiledOutput" },
+        { "$ref": "#/components/ChatPanel" }
       ],
       "discriminator": {
         "propertyName": "component"

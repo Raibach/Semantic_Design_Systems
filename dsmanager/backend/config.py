@@ -7,8 +7,10 @@ import os
 MILVUS_MODE = os.getenv("MILVUS_MODE", "lite")
 MILVUS_URI = os.getenv("MILVUS_URI", "./milvus.db")
 MILVUS_TOKEN = os.getenv("MILVUS_TOKEN", "")
-EMBEDDING_DIMENSION = 1536
-EMBEDDING_MODEL = "text-embedding-ada-002"
+# Matches the live Zilliz collections (384-dim FloatVector, COSINE) and the
+# SentenceTransformer model actually used for embeddings (see ARCHITECTURE docs).
+EMBEDDING_DIMENSION = 384
+EMBEDDING_MODEL = "BAAI/bge-small-en"
 EMBEDDING_MODEL_VERSION = "v1"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200

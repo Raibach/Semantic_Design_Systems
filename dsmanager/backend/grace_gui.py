@@ -566,9 +566,11 @@ def _get_milvus_client():
     """Lazy-init Milvus client for Zilliz Cloud. Returns None if unavailable."""
     try:
         from pymilvus import MilvusClient, DataType
-        from config import MILVUS_URI, EMBEDDING_DIMENSION
+        from config import MILVUS_URI, MILVUS_TOKEN, EMBEDDING_DIMENSION
 
-        client = MilvusClient(uri=MILVUS_URI)
+        # Zilliz Cloud requires the token — without it auth fails and the
+        # exception path silently disables version snapshots.
+        client = MilvusClient(uri=MILVUS_URI, token=MILVUS_TOKEN)
 
         # Ensure the prompt versions collection exists
         coll_name = "prompt_versions"

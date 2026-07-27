@@ -53,18 +53,20 @@
 
 ---
 
-## Phase-2 remediation map (pure A2UI restoration)
+## Phase-2 remediation map (pure A2UI restoration) — ✅ COMPLETE 2026-07-27 (verified live)
 
 | # | Fix | F-items | Files | Status |
 |---|-----|---------|-------|--------|
-| P2-1 | **Restore catalog load + server-side validation.** Load `component-catalog.json` at startup; validate every emitted `updateComponents` tree; reject unknown components via the spec's prompt→generate→validate loop with `VALIDATION_FAILED` error fed back to the LLM. | F1, F4 | `backend/main.py`, `frontend/src/components/A2UI/component-catalog.json` | ⬜ |
-| P2-2 | **Version + catalogId alignment.** `"version": "v0.9.1"` on every envelope message; `catalogId` = the catalog's own `$id` (`https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json`). | F2, F7 | `backend/main.py` | ⬜ |
-| P2-3 | **Remove non-spec `surface` key** from `updateComponents` payloads. The surface distinction belongs to the component tree + data model, not a custom envelope field. | F5 | `backend/main.py`, `frontend/src/pages/WritingAreaIndex.tsx` | ⬜ |
-| P2-4 | **Kill executable-code paths.** Remove `eval()` button onclick, `set-html`/`append-html` raw `innerHTML` injection from `A2UISurfaceContainer.tsx`; route all button behavior through spec `action` messages (server events or catalog `functionCall` like `openUrl` with scheme allowlist). | F3 | `frontend/src/components/A2UISurfaceContainer.tsx`, `frontend/src/shared/tag-registry.ts` | ⬜ |
-| P2-5 | **Retire the fake `a2ui_response` XML envelope** from `save-surface`; return either the standard JSON result or a real v0.9.1 message array. | F11 | `backend/main.py` | ⬜ |
-| P2-6 | **Point `/api/milvus/*` at Zilliz REST** (or delete the SQLite-mirror endpoints); remove `except: return False` suppression in `milvus_rest.py` — fail with the real error visible. | F9, F10 | `backend/main.py`, `backend/milvus_rest.py`, `backend/milvus_sqlite.py` | ⬜ |
-| P2-7 | **Generate + serve the real manifest** (`manifest.json`) so `/api/ai/manifest` stops falling back to the hardcoded list. | F8 | `frontend/scripts/generate-manifest.mjs`, `backend/main.py` | ⬜ |
-| P2-8 | **Expand the catalog or the emitted trees into agreement.** Either register `ConsoleCardGrid`, decision-dialog, `SectionEditor`, `CompiledOutput`, `ChatPanel` as catalog components (with ComponentId/ChildList typing per spec), or emit spec-native trees (`List` + `agent-card` template, `Modal`, `Row` of `Button`). Fix `Text variant="greeting"` → catalog enum. | F4 | `component-catalog.json`, `backend/main.py` | ⬜ |
+| P2-1 | **Restore catalog load + server-side validation.** Catalog loads at startup (`✅ A2UI Catalog loaded — 20 trusted components`); `validate_a2ui_components()` runs on all 4 return points; unknown components → HTTP 503 with the spec's `VALIDATION_FAILED` error format. | F1, F4 | `backend/main.py` | ✅ |
+| P2-2 | **Version + catalogId alignment.** All 15 envelope messages carry `"version": "v0.9.1"`; all 4 `createSurface` use `catalogId = https://raibach.net/a2ui/catalogs/prompt-composer/v0_9_1/catalog.json` (= catalog `$id`). Verified live on both intents. | F2, F7 | `backend/main.py` | ✅ |
+| P2-3 | **Non-spec `surface` key removed.** Backend envelopes carry only spec keys; frontend infers the view from the data model (`decision_type` → decision, `cards` → console, `session` → composer). Verified: `non-spec surface key present: False` on live responses. | F5 | `backend/main.py`, `WritingAreaIndex.tsx` | ✅ |
+| P2-4 | **Executable-code paths killed.** `eval()` button onclick deleted (buttons now dispatch declarative `a2ui:action` CustomEvents); `<set-html>`/`<append-html>` raw innerHTML injection now blocked with warnings. Zero executable code in the container. | F3 | `A2UISurfaceContainer.tsx` | ✅ |
+| P2-5 | **Fake `a2ui_response` XML envelope retired** from `save-surface` (zero frontend consumers — confirmed by grep before removal). | F11 | `backend/main.py` | ✅ |
+| P2-6 | **Milvus honesty.** `/api/milvus/info|collections|vectors` now query Zilliz Cloud live via REST (verified: 8 collections, all `LoadStateLoaded`); `milvus_rest.py` rewritten fail-loud (no `except: return False`); `milvus_sqlite.py` deleted. Bonus fixes: `backend/config.py` embedding config aligned to reality (384-dim, `BAAI/bge-small-en` — was 1536/ada-002); `grace_gui.py` Zilliz client now passes the token (was token-less → silent auth failure). | F9, F10 | `backend/main.py`, `milvus_rest.py`, `config.py`, `grace_gui.py` | ✅ |
+| P2-7 | **Real manifest generated + served.** `tsx scripts/generate-manifest.mjs` → `frontend/dist/manifest.json` (15,244 bytes from the live tag-registry); `/api/ai/manifest` serves it (no more fallback). | F8 | `generate-manifest.mjs`, `frontend/dist/manifest.json` | ✅ |
+| P2-8 | **Catalog ↔ emission agreement.** 6 emitted components registered with spec-mandated typing (`ConsoleCardGrid`, `DecisionDialog`, `ActionGroup`, `SectionEditor`, `CompiledOutput`, `ChatPanel` — list refs use `ChildList`, content refs use `DynamicString`); `greeting` added to Text variant enum; catalog now 20 components; `anyComponent` discriminator updated. | F4 | `component-catalog.json` | ✅ |
+
+**Live verification (2026-07-27 09:22–09:24):** startup logs `✅ A2UI Catalog loaded — 20 trusted components`; `render-composer` + `render-console` both return `version=v0.9.1` envelopes with catalog-validated components and zero non-spec keys; console returns 10 real DeepSeek cards; `tsc --noEmit` exit 0; health `{"database":"connected","milvus":"connected"}`.
 
 ## Phase-3 target (frontend generic renderer)
 
