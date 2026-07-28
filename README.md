@@ -2,7 +2,7 @@
 
 
 **Built by John Holt, Raibach Interactive Design Studio**
-**Date:** 2026-07-27 · **Version:** 0.9.1-dev · **Status:** Active Development (honest A2UI restoration in progress)
+**Date:** 2026-07-27 · **Status:** Active Development (honest A2UI restoration in progress 0.9.1-dev)
 
 The project lives in [`dsmanager/`](dsmanager/) — full documentation in [`dsmanager/README.md`](dsmanager/README.md).
 
