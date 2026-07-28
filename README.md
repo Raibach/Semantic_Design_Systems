@@ -18,7 +18,6 @@ An **A2UI (Agent-to-User Interface) workspace**: a single, stable three-column s
 
 | Doc | Content |
 |-----|---------|
-| [`A2UI Protocol v0.9.1 + Basic Catalog Guide + A2A Extension (verbatim from [a2ui.org](https://a2ui.org/)) |
 | [`dsmanager/READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md`](dsmanager/READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md) | Live-verified ledger: what was real A2UI vs compliance theater, and the remediation that fixed it |
 | [`dsmanager/CHANGELOG.md`](dsmanager/CHANGELOG.md) | Day-by-day build log |
 | [`A2UI Validation Audit`](A2UI%20Validation%20Audit) | External validation review of the A2UI implementation |
