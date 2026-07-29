@@ -3,7 +3,7 @@
 **Date:** 2026-07-27
 **Auditor:** Cline (live verification against running backend + source review)
 **Reference spec:** `SPECIFICATIONS.md` (A2UI Protocol v0.9.1, a2ui.org)
-**Context:** Prior AI sessions gradually undid the A2UI structure and rebuilt traditional-site behavior while leaving docs claiming compliance. This audit separates what is **TRUE** (verified live) from what is **FAKED** (claimed in docs/changelog but not real in code).
+**Context:** Prior AI sessions gradually undid the A2UI structure and rebuilt traditional-site behavior while leaving docs claiming compliance. This audit separates what is **TRUE** (verified live) from what is **FAKED** (claimed in docs/changelog but not real in code). Note: the AI left out it's name or any claim it was the aurthor of this false coding claims. 
 
 ---
 
