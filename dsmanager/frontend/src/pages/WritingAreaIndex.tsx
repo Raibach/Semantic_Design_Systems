@@ -627,6 +627,20 @@ export default function Index({
 
       console.log('🤖 [AI] Calling AI save endpoint...');
 
+      // ── Collect column widths from PromptWorkspace ──
+      let columnWidths: { left: number | null; chat: number } | undefined;
+      const widthPromise = new Promise<void>((resolve) => {
+        const handler = (e: Event) => {
+          columnWidths = (e as CustomEvent).detail;
+          window.removeEventListener('column-widths-response' as any, handler);
+          resolve();
+        };
+        window.addEventListener('column-widths-response' as any, handler);
+        window.dispatchEvent(new CustomEvent('collect-column-widths'));
+        setTimeout(() => { if (!columnWidths) { resolve(); } }, 100);
+      });
+      await widthPromise;
+
       const savePayload = {
         session_id: isValidSessionId ? sessionId : undefined,
         title,
@@ -645,6 +659,7 @@ export default function Index({
         right_column: {
           conversation_id: currentPromptSession?.conversationId || null,
         },
+        column_widths: columnWidths,
       };
 
       const response = await fetch(`${API_BASE}/ai/save-surface`, {
@@ -663,17 +678,13 @@ export default function Index({
       const result = await response.json();
       console.log(`🤖 [AI] ${result.ai_message}`);
 
-      // Update local state with the saved session
-      if (result.session_id) {
-        setCurrentPromptSession((prev) => ({
-          ...prev,
-          id: result.session_id,
-          title,
-          isActive: true,
-          isArchived: false,
-        } as typeof prev));
-        currentPromptSessionRef.current = result.session_id;
+      if (!result.session_id) {
+        throw new Error('AI save response missing session_id');
       }
+
+      const savedSession = await promptService.getPromptSession(result.session_id);
+      setCurrentPromptSession(savedSession);
+      currentPromptSessionRef.current = savedSession.id;
 
       hasUnsavedChangesRef.current = false;
       await loadPromptSessions();
@@ -885,65 +896,16 @@ export default function Index({
     setPromptLoadKey(k => k + 1);
   };
 
-  const handleLoadPromptSession = async (sessionId: string) => {
-    setIsLoadingPrompt(true);
-    try {
-      // Use preloaded data if available (loaded behind the entry overlay)
-      const preloaded = (window as Window & { __preloadedSession?: PromptSession | null }).__preloadedSession;
-      const session = (preloaded?.id === sessionId) ? preloaded : await promptService.getPromptSession(sessionId);
-      (window as Window & { __preloadedSession?: PromptSession | null }).__preloadedSession = null;
-      setCurrentPromptSession(session);
+  // DELETED: handleLoadPromptSession - was database fallback bypassing AI assembly
+  // All session loads MUST go through AI assembly via handleOpenPromptFromConsole
 
-      // Parse stored JSON sections — stored in pendingSectionsRef for the
-      // useEffect above to dispatch once the workspace has mounted.
-      pendingSectionsRef.current = [];
-      if (session.leftColumnContent) {
-        try {
-          const parsed = JSON.parse(session.leftColumnContent);
-          if (parsed && Array.isArray(parsed.sections)) {
-            pendingSectionsRef.current = parsed.sections.map((s: { content?: string; section?: string; name?: string }) => ({
-              content: s.content || '',
-              target: s.section || s.name || '',
-            }));
-          }
-        } catch {
-          // Legacy bracketed format — fall back to parsePromptSections
-          pendingSectionsRef.current = promptService
-            .parsePromptSections(session.leftColumnContent)
-            .map(s => ({ content: s.content, target: s.type.replace(/_/g, ' ') }));
-        }
-      }
-
-      // Remount workspace — the useEffect above handles dispatch.
-      setPromptLoadKey(prev => prev + 1);
-      try {
-        const mvResp = await fetch('/api/milvus/versions');
-        const mvData = await mvResp.json();
-        if (mvData?.versions?.length > 0) {
-          const latest = mvData.versions[mvData.versions.length - 1];
-          if (latest?.content_full) {
-            const outputMatch = latest.content_full.match(/=== OUTPUT ===\n([\s\S]*)/);
-            if (outputMatch) {
-              window.dispatchEvent(new CustomEvent('restore-output', {
-                detail: { content: outputMatch[1].trim() }
-              }));
-            }
-          }
-        }
-      } catch { /* Milvus may not be available */ }
-    } catch (error) {
-      console.error('Failed to load prompt session:', error);
-    } finally {
-      setIsLoadingPrompt(false);
-    }
-  };
-
-  // Load session data when route param changes
+  // DELETED: Load session from route - was database fallback bypassing AI assembly
+  // All session loads MUST go through AI assembly via handleOpenPromptFromConsole
   useEffect(() => {
     if (routeSessionId) {
-      handleLoadPromptSession(routeSessionId);
+      handleOpenPromptFromConsole(routeSessionId);
     }
-  }, [routeSessionId]);
+  }, [routeSessionId, handleOpenPromptFromConsole]);
 
   // Load session from database when route changes (e.g., clicking a card in Console)
   useEffect(() => {
@@ -1055,19 +1017,6 @@ export default function Index({
     session_id: string | null;
   } | null>(null);
 
-  // ── Console Chat Panel Resize Helpers (matches ConsolePageWithNavigate) ──
-  const getMaxChatWidth = useCallback(() => {
-    if (!consoleChatContainerRef.current) return DEFAULT_EXPANDED_WIDTH;
-    const containerW = consoleChatContainerRef.current.getBoundingClientRect().width;
-    return Math.max(COLLAPSED_WIDTH, Math.floor(containerW * 0.95));
-  }, []);
-
-  const clampChatWidth = useCallback((w: number) => {
-    const max = getMaxChatWidth();
-    if (w < 100) return COLLAPSED_WIDTH;
-    return Math.max(COLLAPSED_WIDTH, Math.min(w, max));
-  }, [getMaxChatWidth]);
-
   const handleConsoleChatResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setIsConsoleChatResizing(true);
@@ -1075,12 +1024,12 @@ export default function Index({
 
   const handleConsoleChatResizeDoubleClick = useCallback(() => {
     if (isConsoleChatCollapsed) {
-      setConsoleChatWidth(clampChatWidth(preCollapseWidthRef.current));
+      setConsoleChatWidth(preCollapseWidthRef.current);
     } else {
       preCollapseWidthRef.current = consoleChatWidth;
       setConsoleChatWidth(COLLAPSED_WIDTH);
     }
-  }, [isConsoleChatCollapsed, consoleChatWidth, clampChatWidth]);
+  }, [isConsoleChatCollapsed, consoleChatWidth]);
 
   // Console chat resize mouse move/up handlers
   useEffect(() => {
@@ -1089,8 +1038,7 @@ export default function Index({
       if (isSidebarDraggingRef.current) return;
       if (!consoleChatContainerRef.current) return;
       const rect = consoleChatContainerRef.current.getBoundingClientRect();
-      const newWidth = clampChatWidth(rect.right - e.clientX);
-      setConsoleChatWidth(newWidth);
+      setConsoleChatWidth(rect.right - e.clientX);
     };
     const handleMouseUp = () => {
       if (isSidebarDraggingRef.current) return;
@@ -1106,7 +1054,7 @@ export default function Index({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isConsoleChatResizing, clampChatWidth]);
+  }, [isConsoleChatResizing]);
 
   // Console chat sidebar gripper drag handlers
   useEffect(() => {
@@ -1119,8 +1067,7 @@ export default function Index({
       if (typeof customEvent.detail?.clientX !== 'number') return;
       if (!consoleChatContainerRef.current) return;
       const rect = consoleChatContainerRef.current.getBoundingClientRect();
-      const newWidth = clampChatWidth(rect.right - customEvent.detail.clientX + SIDEBAR_GRIP_OFFSET);
-      setConsoleChatWidth(newWidth);
+      setConsoleChatWidth(rect.right - customEvent.detail.clientX + SIDEBAR_GRIP_OFFSET);
     };
     const handleSidebarDragEnd = () => {
       isSidebarDraggingRef.current = false;
@@ -1138,7 +1085,7 @@ export default function Index({
       window.removeEventListener('right-column-drag', handleSidebarDrag as EventListener);
       window.removeEventListener('right-column-drag-end', handleSidebarDragEnd);
     };
-  }, [clampChatWidth]);
+  }, []);
 
   // Console chat double-click to snap to center
   useEffect(() => {
@@ -1146,15 +1093,14 @@ export default function Index({
       if (!consoleChatContainerRef.current) return;
       const rect = consoleChatContainerRef.current.getBoundingClientRect();
       const centerWidth = Math.floor(rect.width / 2);
-      const snappedWidth = clampChatWidth(Math.max(COLLAPSED_WIDTH, centerWidth));
-      setConsoleChatWidth(snappedWidth);
-      preCollapseWidthRef.current = snappedWidth;
+      setConsoleChatWidth(Math.max(COLLAPSED_WIDTH, centerWidth));
+      preCollapseWidthRef.current = Math.max(COLLAPSED_WIDTH, centerWidth);
     };
     window.addEventListener('right-column-gripper-doubleclick', handleGripperDoubleClickToCenter);
     return () => {
       window.removeEventListener('right-column-gripper-doubleclick', handleGripperDoubleClickToCenter);
     };
-  }, [clampChatWidth]);
+  }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // A2UI v0.9 UNIFIED SURFACE ASSEMBLY
@@ -1353,8 +1299,11 @@ export default function Index({
       if (error instanceof Error && error.name === 'AbortError') {
         if (consoleAssemblyControllerRef.current === controller) {
           console.error('🤖 [A2UI] Assembly timed out');
-          setAiAssemblyMessage('AI OFFLINE: Request timed out after 30 seconds. Please try again.');
+          setAiAssemblyMessage('AI OFFLINE: Request timed out after 10 seconds. Please try again.');
           setAiAssemblyFailed(true);
+          // CRITICAL: Clear fake session - do NOT render composer with stale data
+          setCurrentPromptSession(null);
+          setAssembledConsoleCards(null);
         } else {
           console.log('🤖 [A2UI] Request superseded by newer request');
         }
@@ -1363,6 +1312,9 @@ export default function Index({
         const errorMessage = error instanceof Error ? error.message : String(error);
         setAiAssemblyMessage(`AI OFFLINE: ${errorMessage}`);
         setAiAssemblyFailed(true);
+        // CRITICAL: Clear fake session - do NOT render composer with stale data
+        setCurrentPromptSession(null);
+        setAssembledConsoleCards(null);
       }
     } finally {
       isConsoleAssemblyInFlightRef.current = false;
@@ -1750,11 +1702,12 @@ export default function Index({
     };
     window.addEventListener("save-template", handleSaveTemplateEvent);
 
-    // Listen for prompt-session-loaded from LeftVerticalMenu
+    // DELETED: prompt-session-loaded listener - was database fallback bypassing AI assembly
+    // All session loads MUST go through AI assembly via handleOpenPromptFromConsole
     const handlePromptSessionLoaded = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       if (detail.sessionId) {
-        handleLoadPromptSession(detail.sessionId);
+        handleOpenPromptFromConsole(detail.sessionId);
       }
     };
     window.addEventListener("prompt-session-loaded", handlePromptSessionLoaded);
@@ -1920,7 +1873,7 @@ export default function Index({
                 <p className="text-[#507274] text-sm font-medium font-['Inter'] animate-pulse">{aiAssemblyMessage}</p>
               </div>
               {/* slot="console" — shown when header-tab is "console" */}
-              <div slot="console" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0 }}>
+              <div slot="console" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0, minWidth: 0, overflowX: 'hidden' }}>
                 <ConsolePage
                   refreshKey={consoleRefreshKey}
                   aiAssembledCards={assembledConsoleCards}
@@ -1946,7 +1899,7 @@ export default function Index({
                 />
               </div>
               {/* slot="workspace" — shown for composer, evaluation, variables, metadata tabs */}
-              <div slot="workspace" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0 }}>
+              <div slot="workspace" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0, minWidth: 0, overflowX: 'hidden' }}>
                 <PromptWorkspace
                   key={promptLoadKey}
                   session={currentPromptSession}
@@ -1982,7 +1935,6 @@ export default function Index({
                 className="shrink-0 h-full overflow-hidden"
                 style={{
                   width: consoleChatWidth,
-                  transition: isConsoleChatResizing ? 'none' : 'width 420ms cubic-bezier(0.22, 1, 0.36, 1)',
                 }}
               >
                 <InteractiveChatInterface />

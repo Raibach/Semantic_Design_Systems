@@ -18,6 +18,12 @@ interface LitCardGridProps {
     teamName?: string;
     createdAt?: string;
     lastUsed?: string;
+    likes?: number;
+    modelName?: string;
+    avatarUrl?: string;
+    categoryColor?: string;
+    categoryTitleColor?: string;
+    categoryTextColor?: string;
   }>;
   onOpenPrompt?: (id: string) => void;
 }
@@ -47,9 +53,15 @@ export const LitCardGrid: React.FC<LitCardGridProps> = ({ cards, onOpenPrompt })
       if (card.teamName) el.setAttribute('team-name', card.teamName);
       if (card.createdAt) el.setAttribute('created-at', card.createdAt);
       if (card.lastUsed) el.setAttribute('last-used', card.lastUsed);
+      if (card.likes !== undefined) el.setAttribute('likes', String(card.likes));
+      if (card.modelName) el.setAttribute('model-name', card.modelName);
+      if (card.avatarUrl) el.setAttribute('avatar-url', card.avatarUrl);
+      if (card.categoryColor) el.setAttribute('category-color', card.categoryColor);
+      if (card.categoryTitleColor) el.setAttribute('category-title-color', card.categoryTitleColor);
+      if (card.categoryTextColor) el.setAttribute('category-text-color', card.categoryTextColor);
 
       el.style.display = 'block';
-      el.style.width = '278px';
+      el.style.width = '276px';
       el.style.flexShrink = '0';
       el.style.cursor = 'pointer';
 

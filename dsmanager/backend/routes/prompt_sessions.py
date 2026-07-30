@@ -50,6 +50,12 @@ class UpdatePromptSessionRequest(BaseModel):
     is_archived: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
     category: Optional[str] = None
+    # Console card fields (agent-card-element, Figma 40000717:17091)
+    status: Optional[str] = None
+    likes: Optional[int] = None
+    model_name: Optional[str] = None
+    team_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 
 class SavePromptVersionRequest(BaseModel):
@@ -96,22 +102,45 @@ async def get_prompts(
             user_id=uid, include_archived=include_archived, limit=limit, offset=offset
         )
         # Transform to format ConsolePage expects: { prompts: [...] }
-        prompts = [
-            {
-                "id": s.get("id"),
-                "title": s.get("title", "Untitled Agent"),
-                "category": s.get("category", ""),
-                "metadata": {
-                    "author": (s.get("metadata") or {}).get("author", "You"),
-                    "score": (s.get("metadata") or {}).get("score"),
-                },
-                "message_count": s.get("version_count", 1),
-                "is_archived": s.get("is_archived", False),
-                "updated_at": s.get("updated_at"),
-                "created_at": s.get("created_at"),
-            }
-            for s in sessions
-        ]
+        # Every <agent-card-element> field is sourced from PostgreSQL:
+        # category + category_color, description, author, version, status,
+        # likes, model_name, team_name, avatar_url.
+        prompts = []
+        for s in sessions:
+            author_email = s.get("author_email") or ""
+            username = (s.get("metadata") or {}).get("username") or (
+                author_email.split("@")[0] if author_email else ""
+            )
+            prompts.append(
+                {
+                    "id": s.get("id"),
+                    "title": s.get("title", "Untitled Agent"),
+                    "category": s.get("category", ""),
+                    "category_color": s.get("category_color"),
+                    "category_title_color": s.get("category_title_color"),
+                    "category_text_color": s.get("category_text_color"),
+                    "description": s.get("description", ""),
+                    "status": s.get("status") or "Active",
+                    "likes": s.get("likes") or 0,
+                    "model_name": s.get("model_name") or "",
+                    "team_name": s.get("team_name") or "",
+                    "avatar_url": s.get("avatar_url") or "",
+                    "username": username,
+                    "author": (s.get("metadata") or {}).get("author")
+                        or s.get("author_name")
+                        or "You",
+                    "current_version": s.get("current_version", 1),
+                    "last_accessed_at": s.get("last_accessed_at"),
+                    "metadata": {
+                        "author": (s.get("metadata") or {}).get("author", "You"),
+                        "score": (s.get("metadata") or {}).get("score"),
+                    },
+                    "message_count": s.get("version_count", 1),
+                    "is_archived": s.get("is_archived", False),
+                    "updated_at": s.get("updated_at"),
+                    "created_at": s.get("created_at"),
+                }
+            )
         return {"prompts": prompts, "error": None}
     except HTTPException:
         raise
@@ -126,6 +155,23 @@ async def get_prompts(
         print(f"❌ Get prompts error: {error_detail}")
         raise HTTPException(
             status_code=500, detail=f"Error getting prompts: {str(e)}"
+        )
+
+
+@router.get("/api/categories")
+async def get_categories():
+    """Category registry — name → card color. Drives agent-card-element tint."""
+    if not state.prompt_sessions_api:
+        raise HTTPException(
+            status_code=503,
+            detail="Database not available. Please check your connection.",
+        )
+    try:
+        categories = state.prompt_sessions_api.get_categories()
+        return {"categories": categories, "error": None}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error getting categories: {str(e)}"
         )
 
 
@@ -259,6 +305,11 @@ async def update_prompt_session(
             is_archived=request.is_archived,
             metadata=request.metadata,
             category=request.category,
+            status=request.status,
+            likes=request.likes,
+            model_name=request.model_name,
+            team_name=request.team_name,
+            avatar_url=request.avatar_url,
         )
         return {"session": session, "error": None}
     except HTTPException:

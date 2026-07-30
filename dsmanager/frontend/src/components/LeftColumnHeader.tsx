@@ -124,10 +124,11 @@ export default function LeftColumnHeader({
     { id: 'metadata', label: 'Metadata' },
   ];
 
-  // ── Embla carousel for nav tabs ──
+  // ── Embla carousel for nav tabs — no dragFree so tabs stay
+  //     in place during splitter resize operations ──
   const [navCarouselRef, navApi] = useEmblaCarousel({
     align: "start",
-    dragFree: true,
+    dragFree: false,
     containScroll: "trimSnaps",
   });
   const [navCanScrollPrev, setNavCanScrollPrev] = useState(false);

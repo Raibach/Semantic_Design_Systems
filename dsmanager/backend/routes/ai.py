@@ -30,6 +30,40 @@ from milvus_rest import MilvusREST
 
 router = APIRouter()
 
+
+def _extract_json_payload(response_text: str) -> Any:
+    """Extract a JSON object/array from LLM output without relying on fenced-block parsing."""
+    text = (response_text or "").strip()
+    if not text:
+        raise ValueError("empty response")
+
+    if "```json" in text:
+        text = text.split("```json", 1)[1]
+    elif "```" in text:
+        text = text.split("```", 1)[1]
+
+    if "```" in text:
+        text = text.split("```", 1)[0]
+
+    text = text.strip()
+    if not text:
+        raise ValueError("empty JSON payload")
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(text):
+            if character not in "[{":
+                continue
+            try:
+                value, _ = decoder.raw_decode(text[index:])
+                return value
+            except json.JSONDecodeError:
+                continue
+        raise
+
+
 # ============================================
 # AI MANIFEST ENDPOINT — P5 (2026-07-26)
 # Serves the A2UI component catalog so the Python backend can inject it
@@ -208,7 +242,7 @@ async def ai_assemble_surface(
             mode="console_assembly",
             temperature=0.0,
             prompt_id="surface-assembly-console",
-            model="deepseek-v4-flash"
+            model="nvidia/nemotron-3-ultra-550b-a55b"
         )
         ms_b = (time.perf_counter() - t_b_start) * 1000
 
@@ -217,6 +251,8 @@ async def ai_assemble_surface(
                 status_code=503,
                 detail="A2UI FAILURE: AI did not respond. The AI must be active to render this surface."
             )
+        if llm_response.strip().startswith("Error:"):
+            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: {llm_response.strip()}")
 
         try:
             t_c_start = time.perf_counter()
@@ -229,13 +265,16 @@ async def ai_assemble_surface(
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
-            parsed_response = json.loads(response_text)
-            cards = parsed_response.get("cards", [])
-            ai_message = parsed_response.get("ai_message", "Console ready")
+            parsed_response = _extract_json_payload(response_text)
+            cards = parsed_response["cards"]
+            ai_message = parsed_response["ai_message"]
+            if not isinstance(cards, list):
+                raise TypeError("cards must be a list")
             ms_c = (time.perf_counter() - t_c_start) * 1000
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
             print(f"[A2UI Console] JSON parse FAILED: {e}")
-            raise HTTPException(status_code=503, detail="A2UI FAILURE: AI returned invalid JSON")
+            print(f"[A2UI Console] RAW AI RESPONSE:\n{response_text}")
+            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: AI returned invalid JSON - {str(e)}")
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         print(f"🚨 [A2UI PERF] Console: {len(cards)} cards in {elapsed_ms}ms (DB:{ms_a:.1f}ms AI:{ms_b:.1f}ms Parse:{ms_c:.1f}ms)")
@@ -283,112 +322,166 @@ async def ai_assemble_surface(
     # INTENT: render-composer (blank workspace)
     # ═══════════════════════════════════════════════════════════════
     elif intent == "render-composer":
-        # Milestone A: No DB call for blank composer
+        # TRUE A2UI: AI assembles the FULL surface (components + data)
+        # NO hardcoded structure, NO default values, NO error suppression
+        
+        # Milestone A: DB call to create draft package FIRST
+        # If this fails, the surface FAILS - no suppression
         ms_a = 0.0
+        t_a_start = time.perf_counter()
+        
+        if not state.prompt_sessions_api:
+            raise HTTPException(
+                status_code=503,
+                detail="A2UI FAILURE: Database not available - cannot create draft package"
+            )
+        
+        # Pre-create draft with temporary title (AI will provide real title)
+        draft = state.prompt_sessions_api.create_session(
+            user_id=uid,
+            title="New Prompt (AI assembling...)",
+            description="Draft package — created on composer mount",
+        )
+        if not draft or not draft.get("id"):
+            raise HTTPException(
+                status_code=503,
+                detail="A2UI FAILURE: Draft package creation failed - database error"
+            )
+        
+        draft_session_id = str(draft["id"])
+        state.prompt_sessions_api.update_session(
+            session_id=draft_session_id,
+            user_id=uid,
+            metadata={"draft": True, "created_via": "render-composer"},
+        )
+        ms_a = (time.perf_counter() - t_a_start) * 1000
+        print(f"[A2UI Surface] Draft package created: {draft_session_id}")
 
-        # Call LLM to generate Grace's greeting
-        llm_prompt = """You are Grace, the AI assistant for a prompt engineering workspace.
-The user just clicked "Composer" to start building a new prompt agent.
+        # Call AI to assemble the FULL composer surface
+        # AI must generate: components (adjacency list), greeting, title, initial sections
+        llm_prompt = f"""You are Grace, the A2UI surface assembler for a prompt engineering workspace.
 
-Generate a warm, friendly greeting to welcome them to their fresh workspace.
-Be encouraging but concise (1-2 sentences).
+The user clicked "Composer" to create a new prompt package.
 
-Output ONLY valid JSON:
-{"ai_message": "Your greeting here", "suggested_title": "A creative suggested title for their new prompt"}"""
+Assemble the complete composer surface using the A2UI v0.9.1 protocol.
 
-        ai_message = "Welcome! I've prepared a fresh workspace for you. What would you like to build today?"
-        suggested_title = "New Prompt Agent"
+COMPONENT CATALOG (components you can use):
+- Column: container with children array
+- SectionEditor: prompt section editor (requires sections path)
+- CompiledOutput: output viewer (requires content path)
+- ChatPanel: chat interface (requires conversationId path)
+- Text: text display (with variant: greeting for welcome messages)
+
+REQUIREMENTS:
+1. Create adjacency-list components with id "root" at top
+2. Use 3-column layout: SectionEditor, CompiledOutput, ChatPanel
+3. Include welcome Text component with variant="greeting"
+4. Suggest 2-3 initial prompt sections (system, user, etc.)
+5. Generate friendly greeting (1-2 sentences)
+6. Create creative title for the new prompt
+
+Output ONLY this exact JSON structure (no markdown fences):
+{{
+  "components": [
+    {{"id": "root", "component": "Column", "children": ["greeting", "workspace"]}},
+    {{"id": "greeting", "component": "Text", "text": "Your greeting here", "variant": "greeting"}},
+    {{"id": "workspace", "component": "Column", "children": ["left-col", "middle-col", "right-col"]}},
+    {{"id": "left-col", "component": "SectionEditor", "sections": {{"path": "/session/left_column/sections"}}}},
+    {{"id": "middle-col", "component": "CompiledOutput", "content": {{"path": "/session/middle_column/compiled_output"}}}},
+    {{"id": "right-col", "component": "ChatPanel", "conversationId": {{"path": "/session/right_column/conversation_id"}}}}
+  ],
+  "initial_sections": [
+    {{"name": "Section name", "type": "system|user|tool|context", "content": "", "position": 0}}
+  ],
+  "suggested_title": "Creative title",
+  "ai_message": "Greeting for data model"
+}}"""
 
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
         ms_b = 0.0
         ms_c = 0.0
         t_b_start = time.perf_counter()
+        llm_response = query_llm(
+            question=llm_prompt,
+            mode="surface_assembly",
+            temperature=0.0,
+            prompt_id="surface-assembly-composer",
+            model="nvidia/nemotron-3-ultra-550b-a55b"
+        )
+        ms_b = (time.perf_counter() - t_b_start) * 1000
 
-        try:
-            llm_response = query_llm(
-                question=llm_prompt,
-                mode="console_assembly",
-                temperature=0.0,
-                prompt_id="surface-assembly-composer",
-                model="deepseek-v4-flash"
+        # TRUE A2UI: Hard-fail if AI doesn't respond
+        if not llm_response or not llm_response.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="A2UI FAILURE: AI did not respond. The AI must be active to render this surface."
             )
-            ms_b = (time.perf_counter() - t_b_start) * 1000
+        if llm_response.strip().startswith("Error:"):
+            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: {llm_response.strip()}")
 
-            if llm_response and llm_response.strip():
-                # ── PERFORMANCE TRACE: Milestone C (Validation/Parse) ──
-                t_c_start = time.perf_counter()
-                response_text = llm_response.strip()
-                if "```json" in response_text:
-                    response_text = response_text.split("```json")[1].split("```")[0].strip()
-                elif "```" in response_text:
-                    response_text = response_text.split("```")[1].split("```")[0].strip()
+        # ── PERFORMANCE TRACE: Milestone C (Validation/Parse) ──
+        t_c_start = time.perf_counter()
+        response_text = llm_response.strip()
+        
+        # Strip markdown fences if present
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
 
-                try:
-                    parsed = json.loads(response_text)
-                    ai_message = parsed.get("ai_message", ai_message)
-                    suggested_title = parsed.get("suggested_title", suggested_title)
-                except json.JSONDecodeError:
-                    ai_message = llm_response.strip()[:200]
-                ms_c = (time.perf_counter() - t_c_start) * 1000
-            else:
-                ms_c = 0.0
-        except Exception as e:
-            ms_b = (time.perf_counter() - t_b_start) * 1000
-            ms_c = 0.0
-            print(f"[A2UI Surface] LLM greeting warning: {e}")
+        # Parse and validate AI response - NO fallbacks
+        try:
+            parsed = _extract_json_payload(response_text)
+            components = parsed["components"]
+            initial_sections = parsed["initial_sections"]
+            ai_message = parsed["ai_message"]
+            suggested_title = parsed["suggested_title"]
+            
+            # Validate required fields
+            if not isinstance(components, list) or len(components) == 0:
+                raise ValueError("components must be non-empty array")
+            if not isinstance(initial_sections, list):
+                raise ValueError("initial_sections must be array")
+            if not isinstance(ai_message, str) or not ai_message.strip():
+                raise ValueError("ai_message must be non-empty string")
+            if not isinstance(suggested_title, str) or not suggested_title.strip():
+                raise ValueError("suggested_title must be non-empty string")
+                
+            ms_c = (time.perf_counter() - t_c_start) * 1000
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            print(f"[A2UI Composer] AI response parse FAILED: {e}")
+            print(f"[A2UI Composer] Raw response: {response_text[:500]}")
+            raise HTTPException(
+                status_code=503, 
+                detail=f"A2UI FAILURE: AI returned invalid JSON - {str(e)}"
+            )
+
+        # Update draft title with AI suggestion
+        state.prompt_sessions_api.update_session(
+            session_id=draft_session_id,
+            user_id=uid,
+            title=suggested_title
+        )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
         # ── PERFORMANCE TRACE: LOG BREAKDOWN ──
         print(f"\n{'='*60}")
         print(f"[PERF TRACE] POST /api/ai/assemble-surface | intent=render-composer | total={elapsed_ms}ms")
-        print(f"  Milestone A (Database - N/A):               {ms_a:8.1f}ms")
+        print(f"  Milestone A (Database - draft create):      {ms_a:8.1f}ms")
         print(f"  Milestone B (Network/LLM - query_llm):     {ms_b:8.1f}ms")
         print(f"  Milestone C (Validation - JSON parse):      {ms_c:8.1f}ms")
         print(f"  Remainder (other):                          {elapsed_ms - ms_a - ms_b - ms_c:8.1f}ms")
         print(f"{'='*60}\n")
 
-        # ── R2: PACKAGE-FIRST COMPOSER ──
-        # Create the draft package row NOW so the chat and every action are
-        # package-scoped from the first keystroke — not just after first save.
-        # The draft is hidden from the console until the user saves it
-        # (render-console excludes metadata.draft packages).
-        draft_session_id = None
-        if state.prompt_sessions_api:
-            try:
-                draft = state.prompt_sessions_api.create_session(
-                    user_id=uid,
-                    title=suggested_title,
-                    description="Draft package — created on composer mount",
-                )
-                if draft and draft.get("id"):
-                    draft_session_id = str(draft["id"])
-                    state.prompt_sessions_api.update_session(
-                        session_id=draft_session_id,
-                        user_id=uid,
-                        metadata={"draft": True, "created_via": "render-composer"},
-                    )
-                    print(f"[A2UI Surface] Draft package created: {draft_session_id}")
-            except Exception as e:
-                print(f"[A2UI Surface] Draft package creation warning: {e}")
-
-        # Default sections for blank composer
-        default_sections = [
-            {"name": "System Role", "type": "system", "content": "", "position": 0},
-            {"name": "User Role", "type": "user", "content": "", "position": 1},
-        ]
-
         # ═══════════════════════════════════════════════════════════════
-        # A2UI v0.9 ENVELOPE RESPONSE
+        # A2UI v0.9.1 ENVELOPE RESPONSE - AI-GENERATED COMPONENTS
         # Array of protocol messages: createSurface, updateComponents, updateDataModel
         # ═══════════════════════════════════════════════════════════════
-        components = [
-            {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
-            {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
-            {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
-            {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
-        ]
+        
+        # Validate AI-generated components against catalog
         validate_a2ui_components(components)
+        
         return [
             {
                 "version": "v0.9.1",
@@ -401,7 +494,7 @@ Output ONLY valid JSON:
                 "version": "v0.9.1",
                 "updateComponents": {
                     "surfaceId": "main",
-                    "components": components
+                    "components": components  # AI-generated, not hardcoded
                 }
             },
             {
@@ -411,16 +504,16 @@ Output ONLY valid JSON:
                     "path": "/",
                     "value": {
                         "session": {
-                            "id": draft_session_id,  # R2: package exists from mount (draft)
-                            "title": suggested_title,
+                            "id": draft_session_id,
+                            "title": suggested_title,  # AI-generated
                             "is_unsaved": True,
-                            "left_column": {"sections": default_sections},
+                            "left_column": {"sections": initial_sections},  # AI-generated
                             "middle_column": {"compiled_output": ""},
                             "right_column": {"conversation_id": None},
                         },
-                        "ai_message": ai_message,
+                        "ai_message": ai_message,  # AI-generated
                         "grace_greeting": True,
-                        "suggested_title": suggested_title,
+                        "suggested_title": suggested_title,  # AI-generated
                         "assembly_time_ms": elapsed_ms,
                         "llm_used": True
                     }
@@ -472,43 +565,41 @@ Output ONLY valid JSON:
 Generate a brief, friendly message welcoming them back (1 sentence max).
 Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
 
-        ai_message = f"Welcome back! Here's your session: {session.get('title')}"
-
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
         ms_b = 0.0
         ms_c = 0.0
         t_b_start = time.perf_counter()
+        llm_response = query_llm(
+            question=llm_prompt,
+            mode="console_assembly",
+            temperature=0.0,
+            prompt_id="surface-assembly-session",
+            model="nvidia/nemotron-3-ultra-550b-a55b"
+        )
+        ms_b = (time.perf_counter() - t_b_start) * 1000
+
+        if not llm_response or not llm_response.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="A2UI FAILURE: AI did not respond. The AI must be active to render this surface."
+            )
+        if llm_response.strip().startswith("Error:"):
+            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: {llm_response.strip()}")
+
+        # ── PERFORMANCE TRACE: Milestone C (Validation/Parse) ──
+        t_c_start = time.perf_counter()
+        response_text = llm_response.strip()
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
 
         try:
-            llm_response = query_llm(
-                question=llm_prompt,
-                mode="console_assembly",
-                temperature=0.0,
-                prompt_id="surface-assembly-session",
-                model="deepseek-v4-flash"
-            )
-            ms_b = (time.perf_counter() - t_b_start) * 1000
-
-            if llm_response and llm_response.strip():
-                # ── PERFORMANCE TRACE: Milestone C (Validation/Parse) ──
-                t_c_start = time.perf_counter()
-                response_text = llm_response.strip()
-                if "```json" in response_text:
-                    response_text = response_text.split("```json")[1].split("```")[0].strip()
-                elif "```" in response_text:
-                    response_text = response_text.split("```")[1].split("```")[0].strip()
-                try:
-                    parsed = json.loads(response_text)
-                    ai_message = parsed.get("ai_message", ai_message)
-                except:
-                    pass
-                ms_c = (time.perf_counter() - t_c_start) * 1000
-            else:
-                ms_c = 0.0
-        except Exception as e:
-            ms_b = (time.perf_counter() - t_b_start) * 1000
-            ms_c = 0.0
-            print(f"[A2UI Surface] LLM session greeting warning: {e}")
+            parsed = _extract_json_payload(response_text)
+            ai_message = parsed["ai_message"]
+            ms_c = (time.perf_counter() - t_c_start) * 1000
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError):
+            raise HTTPException(status_code=503, detail="A2UI FAILURE: AI returned invalid JSON")
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -576,6 +667,7 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
                             "version": session.get("current_version"),
                             "created_at": str(session.get("created_at")) if session.get("created_at") else None,
                             "updated_at": str(session.get("updated_at")) if session.get("updated_at") else None,
+                            "column_widths": session.get("metadata", {}).get("column_widths") if session.get("metadata") else None,
                         },
                         "ai_message": ai_message,
                         "assembly_time_ms": elapsed_ms,
@@ -652,7 +744,7 @@ Output ONLY valid JSON:
                 response_text = response_text.split("```")[1].split("```")[0].strip()
 
             try:
-                parsed = json.loads(response_text)
+                parsed = _extract_json_payload(response_text)
                 ai_message = parsed.get("ai_message", ai_message)
             except json.JSONDecodeError:
                 ai_message = llm_response.strip()[:150]
@@ -681,6 +773,7 @@ class AISaveSurfaceRequest(BaseModel):
     left_column: Optional[dict] = None  # sections, positions
     middle_column: Optional[dict] = None  # compiled_output, model_used
     right_column: Optional[dict] = None  # conversation_id, messages
+    column_widths: Optional[dict] = None  # { left: number|null, chat: number }
 
 
 @router.post("/api/ai/save-surface")
@@ -783,10 +876,10 @@ Output ONLY valid JSON:
                         response_text = response_text.split("```")[1].split("```")[0].strip()
 
                     try:
-                        ai_compilation = json.loads(response_text)
+                        ai_compilation = _extract_json_payload(response_text)
                         llm_used = True
                         print(f"[AI Save] LLM compiled surface: {len(ai_compilation.get('compiled_output', ''))} chars")
-                    except json.JSONDecodeError as e:
+                    except (json.JSONDecodeError, ValueError) as e:
                         print(f"[AI Save] LLM response not valid JSON: {e}")
             except Exception as e:
                 print(f"[AI Save] LLM compilation warning: {e}")
@@ -803,11 +896,12 @@ Output ONLY valid JSON:
         ai_description = ai_compilation.get("description", "") if ai_compilation else ""
         session_description = ai_description or f"Prompt with {len(sections)} sections"
 
-        # Build metadata including AI compilation info
+        # Build metadata including AI compilation info + column widths
         save_metadata = {
             "savedBy": "ai_save_surface",
             "llm_used": llm_used,
             "ai_compiled": ai_compilation is not None,
+            "column_widths": request.column_widths,
         }
         if ai_description:
             save_metadata["ai_description"] = ai_description
@@ -821,6 +915,7 @@ Output ONLY valid JSON:
                 description=session_description,
                 left_column_content=left_column_content,
                 compiled_output=compiled_output,
+                conversation_id=conversation_id,
                 metadata=save_metadata,
             )
             action = "updated"
@@ -965,5 +1060,3 @@ async def api_admin_audit_logs(
 # ============================================
 # PROMPT SESSION + VERSION MANAGEMENT
 # ============================================
-
-

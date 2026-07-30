@@ -133,20 +133,28 @@ export class AISurfaceSandbox extends LitElement {
         0 1px 2px rgba(0, 0, 0, 0.05);
     }
 
-    /* ── Scroll viewport — absolute fill, overflow: auto for scrolling ── */
+    /* ── Scroll viewport — absolute fill, overflow-x: hidden prevents
+         unwanted horizontal scrollbars during splitter resize operations.
+         Vertical overflow-y: auto allows content to scroll naturally. ── */
     .viewport {
       position: absolute;
       inset: 0;
-      overflow: auto;
+      overflow-x: hidden;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
     }
 
-    /* ── Slotted content fills the viewport ──────────────────────────── */
+    /* ── Slotted content fills the viewport.
+         min-width: 0 is essential to prevent content from expanding
+         the flex container horizontally during splitter resize.
+         overflow-x: hidden clips horizontal overflow at this level. ── */
     ::slotted(*) {
       display: flex;
       flex: 1 1 auto;
       min-height: 0;
+      min-width: 0;
+      overflow-x: hidden;
     }
 
     /* ── Error boundary panel — high-visibility, loud, no soft fallbacks ── */

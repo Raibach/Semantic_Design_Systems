@@ -20,7 +20,8 @@
     "test:ui": "vitest --ui",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "chromatic": "npx chromatic --project-token=${CHROMATIC_PROJECT_TOKEN}"
+    "chromatic": "npx chromatic --project-token=${CHROMATIC_PROJECT_TOKEN}",
+    "sync-figma": "node scripts/sync-figma-card.mjs"
   },
   "dependencies": {
     "@a2ui/lit": "^0.10.1",

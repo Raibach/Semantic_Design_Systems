@@ -82,6 +82,10 @@ async def startup_event():
     import services
     services.init_services(database_url)
 
+    # DeepSeek startup verification
+    from model_server_manager import ensure_grace_server
+    ensure_grace_server()
+
 
 # ── Route modules (extracted during modularization) ─────────────────
 from routes import (

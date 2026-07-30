@@ -64,6 +64,11 @@ export interface PromptTemplate {
   compiledOutput?: string;
 }
 
+export interface ColumnWidths {
+  left: number | null;  // null = flex-based sharing, number = user-resized px
+  chat: number;         // always a pixel value (75 when collapsed)
+}
+
 export interface PromptSession {
   id: string;
   userId: string;
@@ -80,6 +85,19 @@ export interface PromptSession {
   lastAccessedAt: string;
   metadata?: Record<string, any>;
   conversationTitle?: string;
+  columnWidths?: ColumnWidths;  // persisted slider positions
+  // ── Console card fields (agent-card-element, Figma 40000717:17091) ──
+  category?: string;
+  categoryColor?: string;
+  categoryTitleColor?: string;
+  categoryTextColor?: string;
+  status?: string;
+  likes?: number;
+  modelName?: string;
+  teamName?: string;
+  avatarUrl?: string;
+  username?: string;
+  author?: string;
 }
 
 export interface PromptVersion {
@@ -147,6 +165,19 @@ function mapSessionFromBackend(raw: any): PromptSession {
     updatedAt: raw.updated_at || raw.updatedAt || "",
     createdAt: raw.created_at || raw.createdAt || "",
     metadata: raw.metadata || {},
+    // ── Console card fields from PostgreSQL ──
+    category: raw.category || "",
+    categoryColor: raw.category_color || raw.categoryColor || "",
+    categoryTitleColor: raw.category_title_color || raw.categoryTitleColor || "",
+    categoryTextColor: raw.category_text_color || raw.categoryTextColor || "",
+    status: raw.status || "Active",
+    likes: raw.likes ?? 0,
+    modelName: raw.model_name || raw.modelName || "",
+    teamName: raw.team_name || raw.teamName || "",
+    avatarUrl: raw.avatar_url || raw.avatarUrl || "",
+    username: raw.username || "",
+    author: raw.author || raw.metadata?.author || "",
+    columnWidths: raw.metadata?.column_widths || raw.column_widths || undefined,
   };
 }
 

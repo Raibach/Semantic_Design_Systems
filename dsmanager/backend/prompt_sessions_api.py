@@ -138,6 +138,9 @@ class PromptSessionsAPI:
 
                 # Permission-aware read: the user sees packages they own AND
                 # packages shared with them via session_permissions (any role).
+                # Card fields (status/likes/model_name/team_name/avatar_url)
+                # + category color (categories table) + author (users table)
+                # feed <agent-card-element> on the console.
                 if lightweight:
                     query = """
                         SELECT
@@ -145,9 +148,16 @@ class PromptSessionsAPI:
                             ps.is_active, ps.is_archived, ps.current_version,
                             ps.created_at, ps.updated_at, ps.last_accessed_at,
                             ps.metadata, ps.category, ps.conversation_id,
+                            ps.status, ps.likes, ps.model_name, ps.team_name, ps.avatar_url,
+                            cat.color as category_color,
+                            cat.title_color as category_title_color,
+                            cat.text_color as category_text_color,
+                            u.email as author_email, u.full_name as author_name,
                             COUNT(pv.id) as version_count
                         FROM prompt_sessions ps
                         LEFT JOIN prompt_versions pv ON ps.id = pv.session_id
+                        LEFT JOIN categories cat ON cat.name = ps.category
+                        LEFT JOIN users u ON u.id = ps.user_id
                         WHERE (ps.user_id = %s OR ps.id IN (
                             SELECT session_id FROM session_permissions WHERE user_id = %s
                         ))
@@ -160,6 +170,11 @@ class PromptSessionsAPI:
                             COALESCE(NULLIF(ps.compiled_output, ''), pv_content.compiled_output) as compiled_output,
                             ps.is_active, ps.is_archived, ps.current_version,
                             ps.created_at, ps.updated_at, ps.last_accessed_at, ps.metadata, ps.category,
+                            ps.status, ps.likes, ps.model_name, ps.team_name, ps.avatar_url,
+                            cat.color as category_color,
+                            cat.title_color as category_title_color,
+                            cat.text_color as category_text_color,
+                            u.email as author_email, u.full_name as author_name,
                             c.id as conversation_id, c.title as conversation_title,
                             COUNT(pv.id) as version_count,
                             COUNT(DISTINCT CASE WHEN asug.used = FALSE THEN asug.id END) as unused_suggestions_count
@@ -169,6 +184,8 @@ class PromptSessionsAPI:
                         LEFT JOIN prompt_versions pv_content ON pv_content.session_id = ps.id
                             AND pv_content.version_number = ps.current_version
                         LEFT JOIN ai_suggestions asug ON ps.id = asug.session_id
+                        LEFT JOIN categories cat ON cat.name = ps.category
+                        LEFT JOIN users u ON u.id = ps.user_id
                         WHERE (ps.user_id = %s OR ps.id IN (
                             SELECT session_id FROM session_permissions WHERE user_id = %s
                         ))
@@ -187,7 +204,9 @@ class PromptSessionsAPI:
                         GROUP BY ps.id, ps.user_id, ps.title, ps.description,
                                  ps.is_active, ps.is_archived, ps.current_version,
                                  ps.created_at, ps.updated_at, ps.last_accessed_at,
-                                 ps.metadata, ps.category, ps.conversation_id
+                                 ps.metadata, ps.category, ps.conversation_id,
+                                 ps.status, ps.likes, ps.model_name, ps.team_name, ps.avatar_url,
+                                 cat.color, cat.title_color, cat.text_color, u.email, u.full_name
                         ORDER BY ps.last_accessed_at DESC
                         LIMIT %s OFFSET %s
                     """
@@ -197,6 +216,8 @@ class PromptSessionsAPI:
                                  pv_content.left_column_content, pv_content.compiled_output,
                                  ps.is_active, ps.is_archived, ps.current_version,
                                  ps.created_at, ps.updated_at, ps.last_accessed_at, ps.metadata,
+                                 ps.status, ps.likes, ps.model_name, ps.team_name, ps.avatar_url,
+                                 cat.color, cat.title_color, cat.text_color, u.email, u.full_name,
                                  c.id, c.title
                         ORDER BY ps.last_accessed_at DESC
                         LIMIT %s OFFSET %s
@@ -209,6 +230,21 @@ class PromptSessionsAPI:
 
                 return [dict(session) for session in sessions]
 
+            except Exception as e:
+                raise e
+
+    def get_categories(self) -> List[Dict[str, Any]]:
+        """
+        Get the category registry (name → card color).
+        Drives the agent-card-element background tint per category.
+        """
+        with self.get_db() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT name, color, title_color, text_color FROM categories ORDER BY name"
+                )
+                return [dict(row) for row in cursor.fetchall()]
             except Exception as e:
                 raise e
 
@@ -328,13 +364,20 @@ class PromptSessionsAPI:
                         COALESCE(NULLIF(ps.left_column_content, ''), pv.left_column_content) as left_column_content,
                         COALESCE(NULLIF(ps.compiled_output, ''), pv.compiled_output) as compiled_output,
                         ps.is_active, ps.is_archived, ps.current_version,
-                        ps.created_at, ps.updated_at, ps.last_accessed_at, ps.metadata,
+                        ps.created_at, ps.updated_at, ps.last_accessed_at, ps.metadata, ps.category,
+                        ps.status, ps.likes, ps.model_name, ps.team_name, ps.avatar_url,
+                        cat.color as category_color,
+                        cat.title_color as category_title_color,
+                        cat.text_color as category_text_color,
+                        u.email as author_email, u.full_name as author_name,
                         c.id as conversation_id, c.title as conversation_title,
                         c.metadata as conversation_metadata
                     FROM prompt_sessions ps
                     LEFT JOIN conversations c ON ps.conversation_id = c.id
                     LEFT JOIN prompt_versions pv ON pv.session_id = ps.id
                         AND pv.version_number = ps.current_version
+                    LEFT JOIN categories cat ON cat.name = ps.category
+                    LEFT JOIN users u ON u.id = ps.user_id
                     WHERE ps.id = %s
                 """,
                     (session_id,),
@@ -380,6 +423,11 @@ class PromptSessionsAPI:
         is_archived: bool = None,
         metadata: Dict = None,
         category: str = None,
+        status: str = None,
+        likes: int = None,
+        model_name: str = None,
+        team_name: str = None,
+        avatar_url: str = None,
     ) -> Dict[str, Any]:
         """
         Update a prompt session
@@ -422,6 +470,21 @@ class PromptSessionsAPI:
                 if category is not None:
                     updates.append("category = %s")
                     params.append(category)
+                if status is not None:
+                    updates.append("status = %s")
+                    params.append(status)
+                if likes is not None:
+                    updates.append("likes = %s")
+                    params.append(likes)
+                if model_name is not None:
+                    updates.append("model_name = %s")
+                    params.append(model_name)
+                if team_name is not None:
+                    updates.append("team_name = %s")
+                    params.append(team_name)
+                if avatar_url is not None:
+                    updates.append("avatar_url = %s")
+                    params.append(avatar_url)
 
                 if not updates:
                     # No updates to make

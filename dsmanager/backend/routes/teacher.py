@@ -1,6 +1,7 @@
 """Auto-extracted route module from main.py — zero behavior change."""
 import json
 import os
+import sentry_sdk
 import sys
 import time
 import traceback
@@ -68,7 +69,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
         sentry_sdk.set_user({"id": uid})
         if conv_id:
             sentry_sdk.set_tag("gen_ai.conversation.id", conv_id)
-        sentry_sdk.set_tag("ai.model", "llama-3.1-8b-instruct")
+        sentry_sdk.set_tag("ai.model", "nvidia/nemotron-3-ultra-550b-a55b")
         sentry_sdk.set_tag("ai.mode", request.mode)
         sentry_sdk.set_tag("ai.temperature", str(request.temperature))
         if request.project_id:
@@ -138,7 +139,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
             self_reflection=request.self_reflection,
             editorial=request.editorial,
             mode=mode,
-            model="deepseek-chat",
+            model="nvidia/nemotron-3-ultra-550b-a55b",
         )
 
         # ── Audit logging (fire-and-forget) ──────────────────────────
@@ -150,7 +151,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
                 cursor.execute(
                     "INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata) VALUES (%s, %s, %s, %s, %s)",
                     (uid, "teacher_query", "conversation", conv_id, json.dumps({
-                        "model": "meta/llama-3.1-8b-instruct",
+                        "model": "nvidia/nemotron-3-ultra-550b-a55b",
                         "temperature": request.temperature,
                         "mode": mode,
                         "latency_ms": latency_ms,
@@ -241,5 +242,4 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
     Accepts WAV, MP3, WebM, and other audio formats supported by Whisper.
     """
     raise HTTPException(status_code=501, detail="Whisper not installed on this server")
-
 
