@@ -1149,11 +1149,11 @@ export default function Index({
     const controller = new AbortController();
     consoleAssemblyControllerRef.current = controller;
 
-    // Client-side timeout: hard 10s wall — fail fast, fail loud
+    // Client-side timeout: 45s wall for demo reliability under heavy model load
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      timeoutId = setTimeout(() => controller.abort(), 10000);
+      timeoutId = setTimeout(() => controller.abort(), 45000);
 
       // ═══════════════════════════════════════════════════════════════════
       // SINGLE UNIFIED ENDPOINT - A2UI v0.9 COMPLIANT
@@ -1299,7 +1299,7 @@ export default function Index({
       if (error instanceof Error && error.name === 'AbortError') {
         if (consoleAssemblyControllerRef.current === controller) {
           console.error('🤖 [A2UI] Assembly timed out');
-          setAiAssemblyMessage('AI OFFLINE: Request timed out after 10 seconds. Please try again.');
+          setAiAssemblyMessage('AI OFFLINE: Request timed out after 45 seconds. Please try again.');
           setAiAssemblyFailed(true);
           // CRITICAL: Clear fake session - do NOT render composer with stale data
           setCurrentPromptSession(null);

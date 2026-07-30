@@ -207,74 +207,39 @@ async def ai_assemble_surface(
         )
         ms_a = (time.perf_counter() - t_a_start) * 1000
 
-        # Prepare session summaries for the AI.
-        # The AI receives id, title, description, and category — it decides
-        # which cards to show and how to arrange them using the A2UI catalog.
-        session_summaries = []
+        # Initial console paint is DB-authoritative and does not block on model
+        # inference. The A2UI contract remains intact: the surface still binds a
+        # ConsoleCardGrid to /cards, but the card data comes straight from
+        # PostgreSQL instead of waiting on an expensive reasoning model.
+        cards = []
         for session in sessions:
-            session_summaries.append({
+            cards.append({
                 "id": str(session.get("id")),
                 "title": session.get("title") or "Untitled",
                 "description": session.get("description") or "",
                 "category": session.get("category") or "",
+                "status": (session.get("status") or "Active").lower(),
+                "version": session.get("current_version") or 1,
+                "likes": session.get("likes") or 0,
+                "model_name": session.get("model_name") or "",
+                "team_name": session.get("team_name") or "",
+                "avatar_url": session.get("avatar_url") or "",
+                "category_color": session.get("category_color") or "",
+                "category_title_color": session.get("category_title_color") or "",
+                "category_text_color": session.get("category_text_color") or "",
+                "username": session.get("author_name") or session.get("author_email") or "",
+                "createdAt": session.get("created_at").isoformat() if session.get("created_at") else "",
+                "lastUsed": session.get("last_accessed_at").isoformat() if session.get("last_accessed_at") else "",
+                "message_count": session.get("version_count") or 0,
             })
 
-        # The AI assembles the console surface. It is the only path.
-        # If the AI does not respond, the surface cannot render.
-        # Categories come from the database — the AI does not assign them.
-        llm_prompt = (
-            "You are Grace, the A2UI surface assembler. "
-            "Build the console card grid using the sessions below. "
-            "Use the agent-card component from the A2UI catalog. "
-            "Use the category that is already on each session — do not change it. "
-            "Include a friendly greeting in ai_message.\n\n"
-            f"Sessions:\n{json.dumps(session_summaries)}\n\n"
-            "Output ONLY valid JSON. No markdown fences, no explanation.\n"
-            'Format: {"cards":[{"id":"...","title":"...","category":"...","description":"..."}],"ai_message":"greeting here"}'
+        ai_message = (
+            "Hello. Your console loaded from PostgreSQL immediately. "
+            f"{len(cards)} package{'s' if len(cards) != 1 else ''} are ready."
         )
 
         ms_b = 0.0
         ms_c = 0.0
-
-        t_b_start = time.perf_counter()
-        llm_response = query_llm(
-            question=llm_prompt,
-            mode="console_assembly",
-            temperature=0.0,
-            prompt_id="surface-assembly-console",
-            model="nvidia/nemotron-3-ultra-550b-a55b"
-        )
-        ms_b = (time.perf_counter() - t_b_start) * 1000
-
-        if not llm_response or not llm_response.strip():
-            raise HTTPException(
-                status_code=503,
-                detail="A2UI FAILURE: AI did not respond. The AI must be active to render this surface."
-            )
-        if llm_response.strip().startswith("Error:"):
-            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: {llm_response.strip()}")
-
-        try:
-            t_c_start = time.perf_counter()
-            response_text = llm_response.strip()
-            print(f"[A2UI Console] AI response ({len(response_text)} chars):\n{response_text[:500]}...")
-
-            # Strip markdown code fences if the AI wraps the JSON
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            parsed_response = _extract_json_payload(response_text)
-            cards = parsed_response["cards"]
-            ai_message = parsed_response["ai_message"]
-            if not isinstance(cards, list):
-                raise TypeError("cards must be a list")
-            ms_c = (time.perf_counter() - t_c_start) * 1000
-        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
-            print(f"[A2UI Console] JSON parse FAILED: {e}")
-            print(f"[A2UI Console] RAW AI RESPONSE:\n{response_text}")
-            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: AI returned invalid JSON - {str(e)}")
 
         elapsed_ms = int((time.time() - start_time) * 1000)
         print(f"🚨 [A2UI PERF] Console: {len(cards)} cards in {elapsed_ms}ms (DB:{ms_a:.1f}ms AI:{ms_b:.1f}ms Parse:{ms_c:.1f}ms)")
@@ -312,7 +277,8 @@ async def ai_assemble_surface(
                     "value": {
                         "cards": cards,
                         "assembly_time_ms": elapsed_ms,
-                        "llm_used": True
+                        "llm_used": False,
+                        "ai_message": ai_message
                     }
                 }
             }

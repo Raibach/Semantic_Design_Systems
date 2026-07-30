@@ -39,7 +39,7 @@ MODEL_PROVIDERS = {
 
 MAX_RETRIES = 1
 RETRY_DELAY = 0
-LLM_TIMEOUT = 10  # 10s timeout — development mode, fail fast
+LLM_TIMEOUT = 45  # Demo reliability: allow slower model responses before timeout
 
 
 def search_news(query: str, reasoning: bool = False, memory: str = "") -> str:
@@ -323,9 +323,15 @@ def query_llm(
         messages.append({"role": "system", "content": MISSION_HEADER})
     messages.append({"role": "user", "content": question})
 
-    # Preserve the same request shape used by the prior provider path,
-    # but keep the assembly request compact so it returns before the UI aborts.
-    max_tokens = 8000
+    # Token budget is mode-specific to reduce latency spikes on the demo site.
+    if mode == "console_assembly":
+        max_tokens = 1200
+    elif mode == "chat":
+        max_tokens = 1500
+    elif mode == "prompt_output":
+        max_tokens = 3000
+    else:
+        max_tokens = 1500
     request_temperature = 0.0 if mode == "console_assembly" else temperature
 
     base_payload = {
@@ -365,7 +371,7 @@ def query_llm(
         return "Error: NVIDIA API key is not configured."
 
     try:
-        client = OpenAI(base_url=base_url, api_key=api_key)
+        client = OpenAI(base_url=base_url, api_key=api_key, timeout=LLM_TIMEOUT)
         response = client.chat.completions.create(**payload)
         message = response.choices[0].message
         content = (message.content or "").strip()
