@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as Sentry from "@sentry/react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
-import { ResizableSplitter } from "@/components/ResizableSplitter";
 import { InteractiveChatInterface } from "@/components/InteractiveChatInterface";
 import { ResponsivePromptBuilderWithDnD } from "@/components/ResponsivePromptBuilderWithDnD";
 import "@/components/lit/control-bar";  // registers <control-bar>
@@ -35,7 +34,142 @@ export function PromptWorkspace({
   onClearApproval,
 }: PromptWorkspaceProps) {
   const [isThirdColumnOpen, setIsThirdColumnOpen] = useState(false);
-  
+
+  // ── Console-style collapse state ──
+  const COLLAPSED_WIDTH = 75;
+  const DEFAULT_EXPANDED_WIDTH = 380;
+  const [chatWidth, setChatWidth] = useState(DEFAULT_EXPANDED_WIDTH);
+  const [isChatResizing, setIsChatResizing] = useState(false);
+  const preCollapseWidthRef = useRef(DEFAULT_EXPANDED_WIDTH);
+  const workspaceContainerRef = useRef<HTMLDivElement>(null);
+  const isChatCollapsed = chatWidth <= COLLAPSED_WIDTH;
+
+  // ── Left Column resize (gripper between editor and output) ──
+  const [leftColumnWidth, setLeftColumnWidth] = useState<number | null>(null);
+
+  // ── Flags: has user manually resized? Prevents auto-equalizer from fighting ──
+  const userHasResizedChatRef = useRef(false);
+  const userHasResizedLeftRef = useRef(false);
+  const [isLeftResizing, setIsLeftResizing] = useState(false);
+  const leftResizeStartRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const leftColumnRef = useRef<HTMLDivElement>(null);
+
+  const handleChatResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsChatResizing(true);
+  }, []);
+
+  const handleChatResizeDoubleClick = useCallback(() => {
+    if (isChatCollapsed) {
+      setChatWidth(preCollapseWidthRef.current);
+    } else {
+      preCollapseWidthRef.current = chatWidth;
+      setChatWidth(COLLAPSED_WIDTH);
+    }
+  }, [isChatCollapsed, chatWidth]);
+
+  // ── Expose column widths for save (Step 3) ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const event = e as CustomEvent;
+      const detail = { left: leftColumnWidth, chat: chatWidth };
+      window.dispatchEvent(new CustomEvent('column-widths-response', { detail }));
+    };
+    window.addEventListener('collect-column-widths', handler);
+    return () => window.removeEventListener('collect-column-widths', handler);
+  }, [leftColumnWidth, chatWidth]);
+
+  // ── Restore column widths from saved session (Step 4) ──
+  useEffect(() => {
+    if (session?.id) {
+      const widths = (session as any).columnWidths as { left: number | null; chat: number } | undefined;
+      console.log('[LAYOUT DEBUG] Loaded | chat:', chatWidth, '| left:', leftColumnWidth, '| saved:', session?.columnWidths);
+      if (widths) {
+        setChatWidth(widths.chat);
+        setLeftColumnWidth(widths.left);
+        userHasResizedChatRef.current = true;
+        userHasResizedLeftRef.current = true;
+      }
+    }
+  }, [session?.id]);
+
+  // ── Auto-equalizer: when output opens, split equally unless user already resized ──
+  const prevThirdColumnOpen = useRef(false);
+  useEffect(() => {
+    if (isThirdColumnOpen && !prevThirdColumnOpen.current) {
+      // Output just opened — equalize columns
+      if (!userHasResizedChatRef.current || !userHasResizedLeftRef.current) {
+        const containerWidth = workspaceContainerRef.current?.getBoundingClientRect().width;
+        if (containerWidth && containerWidth > 0) {
+          const grippers = 12; // two 6px grippers
+          const equalWidth = Math.floor((containerWidth - grippers) / 3);
+          if (!userHasResizedChatRef.current) {
+            setChatWidth(Math.max(COLLAPSED_WIDTH, equalWidth));
+          }
+          if (!userHasResizedLeftRef.current) {
+            setLeftColumnWidth(Math.max(200, equalWidth));
+          }
+        }
+      }
+    }
+    if (!isThirdColumnOpen && prevThirdColumnOpen.current) {
+      // Output closed — reset flags so next open re-equalizes
+      userHasResizedChatRef.current = false;
+      userHasResizedLeftRef.current = false;
+      setLeftColumnWidth(null);
+    }
+    prevThirdColumnOpen.current = isThirdColumnOpen;
+  }, [isThirdColumnOpen]);
+
+  // ── Left Column resize handlers ──
+  const handleLeftResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!leftColumnRef.current) return;
+    const rect = leftColumnRef.current.getBoundingClientRect();
+    leftResizeStartRef.current = { startX: e.clientX, startWidth: rect.width };
+    setIsLeftResizing(true);
+  }, []);
+
+  // Chat resize mouse move/up handlers
+  useEffect(() => {
+    if (!isChatResizing && !isLeftResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isLeftResizing) {
+        if (!leftResizeStartRef.current) return;
+        const dx = e.clientX - leftResizeStartRef.current.startX;
+        const newWidth = Math.max(200, leftResizeStartRef.current.startWidth + dx);
+        setLeftColumnWidth(newWidth);
+        return;
+      }
+      if (!workspaceContainerRef.current) return;
+      const rect = workspaceContainerRef.current.getBoundingClientRect();
+      setChatWidth(Math.max(COLLAPSED_WIDTH, rect.right - e.clientX));
+    };
+
+    const handleMouseUp = () => {
+      if (isLeftResizing) {
+        setIsLeftResizing(false);
+        leftResizeStartRef.current = null;
+        userHasResizedLeftRef.current = true;
+        return;
+      }
+      setIsChatResizing(false);
+      userHasResizedChatRef.current = true;
+      setChatWidth((w) => {
+        if (w > COLLAPSED_WIDTH) preCollapseWidthRef.current = w;
+        return w;
+      });
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isChatResizing, isLeftResizing]);
+
   // Prevent closing third column when output exists
   const handleThirdColumnStateChange = (open: boolean) => {
     if (!open && compiledOutput?.trim()) {
@@ -194,7 +328,7 @@ export function PromptWorkspace({
       saveToMilvus(compiledOutput);
     }
     prevRunningForSave.current = isRunning;
-     
+      
   }, [isRunning, compiledOutput]);
 
   const handleRegenerate = async (model: string) => {
@@ -362,9 +496,6 @@ export function PromptWorkspace({
   }, []);
 
   // Restore compiledOutput from the loaded session on mount.
-  // This runs BEFORE the restore-output event (which fires ~100ms later).
-  // We track that we've already restored to prevent a subsequent empty
-  // restore-output event from wiping the data (race-condition guard).
   const sessionRestoredRef = useRef(false);
   useEffect(() => {
     if (session?.compiledOutput && !sessionRestoredRef.current) {
@@ -375,26 +506,54 @@ export function PromptWorkspace({
   }, [session?.compiledOutput]);
 
   // Listen for restore-output event — opens third column with saved output.
-  // Only applies if we didn't already restore from the session prop, or if
-  // the event carries newer content that differs from what we already have.
   useEffect(() => {
     const handler = (e: Event) => {
       const { content } = (e as CustomEvent).detail;
       if (content) {
-        // If we already restored from session and the event content is
-        // identical, skip the redundant update.
         if (sessionRestoredRef.current && content === compiledOutput) return;
         setCompiledOutput(content);
         setIsThirdColumnOpen(true);
-        sessionRestoredRef.current = false; // event wins over session
+        sessionRestoredRef.current = false;
       }
     };
     window.addEventListener('restore-output', handler);
     return () => window.removeEventListener('restore-output', handler);
   }, [compiledOutput]);
 
+  // ── Build the content for left/right based on flipped state ──
+  const editorContent = flipped ? (
+    <InteractiveChatInterface
+      onConversationChange={onConversationChange}
+      sessionId={session?.id || null}
+      compiledOutput={compiledOutput}
+      isRunning={isRunning}
+    />
+  ) : (
+    <DndProvider backend={HTML5Backend}>
+      <ResponsivePromptBuilderWithDnD />
+    </DndProvider>
+  );
+
+  const chatContent = flipped ? (
+    <DndProvider backend={HTML5Backend}>
+      <ResponsivePromptBuilderWithDnD />
+    </DndProvider>
+  ) : (
+    <InteractiveChatInterface
+      onConversationChange={onConversationChange}
+      sessionId={session?.id || null}
+      compiledOutput={compiledOutput}
+      isRunning={isRunning}
+    />
+  );
+
   return (
-    <div className="relative flex flex-col flex-1 min-h-0">
+    <>
+      {/* TEMPORARY DEBUG BADGE — remove after verification */}
+      <div style={{ position: 'fixed', top: 0, left: 0, zIndex: 9999, background: 'red', color: 'white', padding: '4px 12px', fontSize: '12px', fontWeight: 'bold' }}>
+        Chat: {chatWidth}px | Left: {leftColumnWidth}px | Saved: {String(!!(session as any)?.columnWidths)}
+      </div>
+      <div className="relative flex flex-col flex-1 min-h-0 overflow-x-hidden">
       {/* Approval Mode Banner */}
       {approvalMode && (
         <div className="flex items-center justify-between bg-gradient-to-r from-green-600 to-emerald-500 text-white px-5 py-3 rounded-xl mb-2 shadow-md animate-in slide-in-from-top-3 duration-400">
@@ -434,95 +593,85 @@ export function PromptWorkspace({
         </div>
       )}
 
-      {/* Rigid height anchor — gives ResizableSplitter's h-full a definite parent height
-          to resolve against. flex: 1 1 0% + min-h-0 forces the wrapper to fill remaining
-          space in PromptWorkspace's flex column, then ResizableSplitter's h-full resolves
-          against this computed height. Do NOT remove this wrapper. */}
-      <div style={{ position: 'relative', flex: '1 1 0%', minHeight: 0 }}>
-      <ResizableSplitter
-        leftInitialWidth={960}
-        minLeftWidth={400}
-        minRightWidth={0}
-        isLightMode={false}
-        isThirdColumnOpen={isThirdColumnOpen}
-        onThirdColumnStateChange={handleThirdColumnStateChange}
+      {/* ── MAIN LAYOUT: flex row (like Console page) ── */}
+      <div
+        ref={workspaceContainerRef}
+        className="flex-1 flex flex-row overflow-hidden min-h-0"
+        style={{ position: 'relative' }}
       >
-        {/* Left Column — Editor (or Chat when flipped) */}
+        {/* ── Left Column — Editor ── */}
         <div
+          ref={leftColumnRef}
           {...UI_ID.LAYOUT.LEFT_COLUMN}
-          className="w-full flex-[1.2] min-w-[400px] flex flex-col rounded-[10px] shadow-lg min-h-[600px] h-full"
+          className="flex flex-col h-full overflow-x-hidden"
+          style={{ flex: leftColumnWidth ? '0 0 auto' : '1 1 0%', width: leftColumnWidth || undefined, minWidth: leftColumnWidth ? 0 : 0 }}
         >
           <div className="flex-1 min-h-0 h-full flex flex-col">
-            {flipped ? (
-              <InteractiveChatInterface
-                onConversationChange={onConversationChange}
-                sessionId={session?.id || null}
-                compiledOutput={compiledOutput}
-                isRunning={isRunning}
-              />
-            ) : (
-              <DndProvider backend={HTML5Backend}>
-                <ResponsivePromptBuilderWithDnD />
-              </DndProvider>
-            )}
+            {editorContent}
           </div>
         </div>
 
-        {/* Right Column — Chat (or Editor when flipped) */}
+        {/* ── Left Column Resize Gripper (editor ↔ output) ── */}
+        {isThirdColumnOpen && (
+          <div
+            onMouseDown={handleLeftResizeStart}
+            className={`shrink-0 cursor-col-resize transition-colors flex items-center justify-center ${
+              isLeftResizing ? "bg-[#507274]" : "bg-transparent hover:bg-[#507274]/20"
+            }`}
+            style={{ width: 6, userSelect: "none" }}
+            title="Drag to resize left column"
+          >
+            <div className="w-[3px] h-8 rounded-full bg-[#507274]/30" />
+          </div>
+        )}
+
+        {/* ── Third Column (Output) ── */}
+        {isThirdColumnOpen && (
+          <>
+            <div className="flex flex-col h-full overflow-hidden" style={{ flex: '1 1 0%', minWidth: 0 }}>
+              <MiddleColumnSlot
+                sessionId={session?.id || null}
+                responseCardModel={responseCardModel}
+                onResponseCardModelChange={setResponseCardModel}
+                expandedCard={expandedCard}
+                onToggleExpandedCard={setExpandedCard}
+                compiledOutput={compiledOutput}
+                isRunning={isRunning}
+                onClearOutput={handleClearOutput}
+                onRegenerate={handleRegenerate}
+              />
+            </div>
+          </>
+        )}
+
+        {/* ── Resize Gripper — identical to Console page pattern ── */}
         <div
-          {...UI_ID.LAYOUT.RIGHT_COLUMN}
-          className="w-full flex-[0.8] flex flex-col min-h-[600px] h-full min-w-0"
+          onMouseDown={handleChatResizeStart}
+          onDoubleClick={handleChatResizeDoubleClick}
+          className={`shrink-0 cursor-col-resize transition-colors flex items-center justify-center ${
+            isChatResizing ? "bg-[#507274]" : "bg-transparent hover:bg-[#507274]/20"
+          }`}
+          style={{ width: 6, userSelect: "none" }}
+          title="Drag to resize · Double-click to collapse"
         >
-          <div className="flex-1 min-h-0 h-full flex flex-col">
-            {flipped ? (
-              <DndProvider backend={HTML5Backend}>
-                <ResponsivePromptBuilderWithDnD />
-              </DndProvider>
-            ) : (
-              <InteractiveChatInterface
-                onConversationChange={onConversationChange}
-                sessionId={session?.id || null}
-                compiledOutput={compiledOutput}
-                isRunning={isRunning}
-              />
-            )}
-          </div>
+          {isChatCollapsed && (
+            <div className="w-[3px] h-8 rounded-full bg-[#507274]/30" />
+          )}
         </div>
 
-        {/* Third Column - Injectable Middle Slot */}
-        <div className="w-full flex-[0.8] min-w-[400px] flex flex-col min-h-[600px] h-full overflow-hidden">
-          <MiddleColumnSlot
-            sessionId={session?.id || null}
-            responseCardModel={responseCardModel}
-            onResponseCardModelChange={setResponseCardModel}
-            expandedCard={expandedCard}
-            onToggleExpandedCard={setExpandedCard}
-            compiledOutput={compiledOutput}
-            isRunning={isRunning}
-            onClearOutput={handleClearOutput}
-            onRegenerate={handleRegenerate}
-          />
+        {/* ── Right Column — Chat (collapsible, docked to right) ── */}
+        <div
+          className="shrink-0 h-full overflow-hidden"
+          style={{ width: chatWidth, minWidth: '75px', flexShrink: 0 }}
+        >
+          {chatContent}
         </div>
-      </ResizableSplitter>
       </div>
 
-      {/* Control Bar — Lit Web Component (P3: ported from React, CustomEvents for shell integration) */}
-      <control-bar
-        version-text={session ? `Saved: ${session.title}` : "Editing Version 1"}
-        is-saving={isSaving ? '' : undefined}
-        ref={(el) => {
-          if (!el) return;
-          // Attach CustomEvent listeners once (Lit dispatches save-click, run-click)
-          const handleSave = () => onSave(compiledOutput);
-          const handleRunClick = () => handleRun();
-          el.addEventListener('save-click', handleSave);
-          el.addEventListener('run-click', handleRunClick);
-          (el as any).__cleanup = () => {
-            el.removeEventListener('save-click', handleSave);
-            el.removeEventListener('run-click', handleRunClick);
-          };
-        }}
-      />
+      {/* Bottom surface pad — reserved ~40px strip (readout area, no controls) */}
+      <div style={{ height: 40, flexShrink: 0 }} aria-hidden="true" />
+
     </div>
+    </>
   );
 }

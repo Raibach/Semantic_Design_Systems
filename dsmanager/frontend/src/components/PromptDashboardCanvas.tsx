@@ -715,7 +715,7 @@ export function CardBack({ title, author, version, status, score, lastUsed }: {
     status === "Pending" || status === "pending" ? "text-[#FB8D67]" :
     status === "Drift" ? "text-red-400" : "text-gray-400";
   return (
-    <div className="h-[359px] w-[278px] bg-[#1B2F3A] border border-[#8E98A8]/30 rounded-[10px] flex flex-col justify-center p-6 text-sm shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)]">
+    <div className="h-[372px] w-[276px] bg-[#1B2F3A] border border-[#8E98A8]/30 rounded-[10px] flex flex-col justify-center p-6 text-sm shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)]">
       <p className="text-base font-bold text-white mb-4 leading-tight font-['Inter:Bold']">{title}</p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
         <span className="text-white/50">Author</span><span className="text-white font-medium">{author}</span>
@@ -818,6 +818,12 @@ function AgentCardRow({
     tags?: string;
     comments?: number;
     message_count?: number;
+    model_name?: string;
+    team_name?: string;
+    avatar_url?: string;
+    category_color?: string;
+    category_title_color?: string;
+    category_text_color?: string;
   }>;
   startIdx: number;
   onOpenPrompt?: (id: string) => void;
@@ -865,7 +871,7 @@ function AgentCardRow({
       ) : null}
       {narrowSlots.map((agent, i) => {
         if (!agent) {
-          return <div key={`empty-${i}`} className="h-[359px] w-[278px] border border-dashed border-gray-200 rounded-[10px]" />;
+          return <div key={`empty-${i}`} className="h-[372px] w-[276px] border border-dashed border-gray-200 rounded-[10px]" />;
         }
         
         // Narrow FlipCard (278px) — Lit agent-card-element
@@ -880,11 +886,15 @@ function AgentCardRow({
               category: agent.category || '',
               description: agent.description || '',
               username: agent.username || agent.author || '',
-              'team-name': agent.teamName || '',
+              'team-name': agent.team_name || agent.teamName || '',
               version: agent.version || agent.message_count || 1,
               status: agent.status || 'Active',
               likes: agent.likes ?? 0,
-              'model-name': '',
+              'model-name': agent.model_name || '',
+              'avatar-url': agent.avatar_url || '',
+              'category-color': agent.category_color || '',
+              'category-title-color': agent.category_title_color || '',
+              'category-text-color': agent.category_text_color || '',
               'last-used': agent.lastUsed || '',
               'created-at': agent.createdAt || '',
             })}
@@ -930,6 +940,12 @@ export function Frame29({ onOpenPrompt, searchValue, agents, onCreateNew, onSear
     tags?: string;
     comments?: number;
     message_count?: number;
+    model_name?: string;
+    team_name?: string;
+    avatar_url?: string;
+    category_color?: string;
+    category_title_color?: string;
+    category_text_color?: string;
   }>;
   onCreateNew?: () => void;
 }) {
@@ -1017,11 +1033,15 @@ export function Frame29({ onOpenPrompt, searchValue, agents, onCreateNew, onSear
               category: agent.category || '',
               description: agent.description || '',
               username: agent.username || agent.author || '',
-              'team-name': agent.teamName || '',
+              'team-name': agent.team_name || agent.teamName || '',
               version: agent.version || agent.message_count || 1,
               status: agent.status || 'Active',
               likes: agent.likes ?? 0,
-              'model-name': '',
+              'model-name': agent.model_name || '',
+              'avatar-url': agent.avatar_url || '',
+              'category-color': agent.category_color || '',
+              'category-title-color': agent.category_title_color || '',
+              'category-text-color': agent.category_text_color || '',
               'last-used': agent.lastUsed || '',
               'created-at': agent.createdAt || '',
             })}

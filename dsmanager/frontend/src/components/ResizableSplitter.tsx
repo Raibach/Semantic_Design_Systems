@@ -53,14 +53,16 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
 
   const STORAGE_KEY = 'grace_editor_column_width';
   const THRESHOLD_KEY = 'grace_editor_third_column_open';
-  const RIGHT_COLUMN_COLLAPSED_WIDTH = 75;
+  const RIGHT_COLUMN_COLLAPSED_WIDTH = 0;
   const LEFT_COLUMN_COLLAPSED_WIDTH = 66; // Match LeftVerticalMenu width
   const SLIDE_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
   const SLIDE_DURATION_MS = prefersReducedMotion ? 0 : 420;
 
   const getWidthTransition = () => {
+    // Always none during resize operations to prevent snap/jerk on mousedown
     if (isResizing || isResizingThird || isSidebarDragging) return 'none';
-    return `width ${SLIDE_DURATION_MS}ms ${SLIDE_EASING}, min-width ${SLIDE_DURATION_MS}ms ${SLIDE_EASING}`;
+    // No animated transition on width — only use for collapse/expand durations
+    return 'none';
   };
 
   const applyPrimaryResize = useCallback((clientX: number) => {
@@ -69,29 +71,16 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
     const containerRect = containerRef.current.getBoundingClientRect();
     const newLeftWidth = clientX - containerRect.left;
     const collapseTargetLeftWidth = isThirdColumnOpen
-      ? containerRect.width - thirdWidth - RIGHT_COLUMN_COLLAPSED_WIDTH - 16
-      : containerRect.width - RIGHT_COLUMN_COLLAPSED_WIDTH - 8;
+      ? containerRect.width - thirdWidth - minRightWidth - 16
+      : containerRect.width - minRightWidth - 8;
 
-    // Allow dragging all the way to close (minimum of LEFT_COLUMN_COLLAPSED_WIDTH or 0)
-    // User can drag left to collapse to 56px (LEFT_COLUMN_COLLAPSED_WIDTH) or right to expand
-    const minDragWidth = LEFT_COLUMN_COLLAPSED_WIDTH; // Allow dragging to collapsed width
     const constrainedWidth = Math.max(
-      minDragWidth,
+      minLeftWidth,
       Math.min(newLeftWidth, collapseTargetLeftWidth)
     );
 
-    // Keep drag continuous/smooth; do not auto-collapse while dragging.
-    // Collapse/expand is handled by explicit sidebar toggle interactions.
-    if (isRightColumnCollapsed) {
-      setIsRightColumnCollapsed(false);
-      emitRightColumnCollapseChange(false);
-    }
-    if (isLeftColumnCollapsed) {
-      setIsLeftColumnCollapsed(false);
-    }
-
     setLeftWidth(constrainedWidth);
-  }, [isThirdColumnOpen, thirdWidth, isRightColumnCollapsed, isLeftColumnCollapsed]);
+  }, [isThirdColumnOpen, thirdWidth, minLeftWidth, minRightWidth]);
 
   const handleLeftColumnToggle = () => {
     if (!containerRef.current) return;
@@ -197,10 +186,6 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (isRightColumnCollapsed) {
-      setIsRightColumnCollapsed(false);
-      emitRightColumnCollapseChange(false);
-    }
     setIsResizing(true);
   };
 
@@ -231,28 +216,16 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
 
     const containerRect = containerRef.current.getBoundingClientRect();
     const collapseTargetLeftWidth = isThirdColumnOpen
-      ? containerRect.width - thirdWidth - RIGHT_COLUMN_COLLAPSED_WIDTH - 16
-      : containerRect.width - RIGHT_COLUMN_COLLAPSED_WIDTH - 8;
+      ? containerRect.width - thirdWidth - minRightWidth - 16
+      : containerRect.width - minRightWidth - 8;
     const expandedMaxLeftWidth = isThirdColumnOpen
       ? containerRect.width - minRightWidth - thirdWidth - 16
       : containerRect.width - minRightWidth - 8;
 
-    // Use LEFT_COLUMN_COLLAPSED_WIDTH as minimum, not minLeftWidth
-    const finalizedWidth = isRightColumnCollapsed
-      ? Math.max(LEFT_COLUMN_COLLAPSED_WIDTH, collapseTargetLeftWidth)
-      : Math.max(LEFT_COLUMN_COLLAPSED_WIDTH, Math.min(leftWidth, expandedMaxLeftWidth));
+    const finalizedWidth = Math.max(minLeftWidth, Math.min(leftWidth, expandedMaxLeftWidth));
 
-    // If width is at or near collapsed width, set collapsed state
-    const isNowCollapsed = finalizedWidth <= LEFT_COLUMN_COLLAPSED_WIDTH + 10; // 10px tolerance
-    if (isNowCollapsed !== isLeftColumnCollapsed) {
-      setIsLeftColumnCollapsed(isNowCollapsed);
-      if (isNowCollapsed) {
-        preLeftCollapseWidthRef.current = leftWidth; // Save previous width
-      }
-    }
-
-    setLeftWidth(finalizedWidth);
-    sessionStorage.setItem(STORAGE_KEY, finalizedWidth.toString());
+    setLeftWidth(Math.round(finalizedWidth));
+    sessionStorage.setItem(STORAGE_KEY, Math.round(finalizedWidth).toString());
     
     // When resizing the left column, don't automatically close the third column
     // Third column should only close when explicitly dragged to 0 width
@@ -286,10 +259,6 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
 
   useEffect(() => {
     const handleSidebarDragStart = () => {
-      if (isRightColumnCollapsed) {
-        setIsRightColumnCollapsed(false);
-        emitRightColumnCollapseChange(false);
-      }
       setIsSidebarDragging(true);
     };
 
@@ -308,18 +277,16 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
 
       const containerRect = containerRef.current.getBoundingClientRect();
       const collapseTargetLeftWidth = isThirdColumnOpen
-        ? containerRect.width - thirdWidth - RIGHT_COLUMN_COLLAPSED_WIDTH - 16
-        : containerRect.width - RIGHT_COLUMN_COLLAPSED_WIDTH - 8;
+        ? containerRect.width - thirdWidth - minRightWidth - 16
+        : containerRect.width - minRightWidth - 8;
       const expandedMaxLeftWidth = isThirdColumnOpen
         ? containerRect.width - minRightWidth - thirdWidth - 16
         : containerRect.width - minRightWidth - 8;
 
-      const finalizedWidth = isRightColumnCollapsed
-        ? Math.max(LEFT_COLUMN_COLLAPSED_WIDTH, collapseTargetLeftWidth)
-        : Math.max(LEFT_COLUMN_COLLAPSED_WIDTH, Math.min(leftWidth, expandedMaxLeftWidth));
+      const finalizedWidth = Math.max(minLeftWidth, Math.min(leftWidth, expandedMaxLeftWidth));
 
-      setLeftWidth(finalizedWidth);
-      sessionStorage.setItem(STORAGE_KEY, finalizedWidth.toString());
+      setLeftWidth(Math.round(finalizedWidth));
+      sessionStorage.setItem(STORAGE_KEY, Math.round(finalizedWidth).toString());
       setIsSidebarDragging(false);
     };
 
@@ -541,7 +508,9 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
           width: isLeftColumnCollapsed
             ? `${LEFT_COLUMN_COLLAPSED_WIDTH}px`
             : `${leftWidth}px`,
-          minWidth: `${LEFT_COLUMN_COLLAPSED_WIDTH}px`, // Always allow collapsing to 56px
+          minWidth: isLeftColumnCollapsed
+            ? `${LEFT_COLUMN_COLLAPSED_WIDTH}px`
+            : `${minLeftWidth}px`,
           transition: getWidthTransition(),
           willChange: 'width'
         }}
@@ -619,24 +588,18 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
         </>
       )}
 
-      {/* Right Column */}
+      {/* Right Column — always fills remaining space, right edge stays flush with browser */}
       <div
         className="overflow-hidden flex flex-col"
         style={{ 
           width: isRightColumnCollapsed
             ? `${RIGHT_COLUMN_COLLAPSED_WIDTH}px`
-            : isThirdColumnOpen
-            ? isLeftColumnCollapsed
-              ? `calc(100% - ${LEFT_COLUMN_COLLAPSED_WIDTH}px - ${thirdWidth}px - 16px)`
-              : `calc(100% - ${leftWidth}px - ${thirdWidth}px - 16px)`
-            : isLeftColumnCollapsed
-              ? `calc(100% - ${LEFT_COLUMN_COLLAPSED_WIDTH}px - 8px)`
-              : `calc(100% - ${leftWidth}px - 8px)`,
+            : undefined,
+          flex: isRightColumnCollapsed ? '0 0 auto' : '1 1 auto',
           minWidth: isRightColumnCollapsed
             ? `${RIGHT_COLUMN_COLLAPSED_WIDTH}px`
             : `${minRightWidth}px`,
           transition: getWidthTransition(),
-          willChange: 'width',
           height: '100%'
         }}
       >

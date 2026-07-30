@@ -139,3 +139,125 @@ def search_file(file_key: str, query: str) -> Optional[Dict]:
         search_node(data["document"])
     
     return {"results": results[:50], "query": query, "file_name": data.get("name")}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DESIGN SPEC EXTRACTION — Figma → Lit catalog feed
+# Normalizes a Figma node tree into a style spec the Lit components and the
+# A2UI catalog consume: every fill, stroke, effect, font, weight, size,
+# line height, letter spacing, layout value, and bounding box. No rounding,
+# no dropped values — the spec carries Figma's numbers verbatim.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _figma_color(c: Optional[Dict]) -> Optional[Dict]:
+    """Figma RGBA (0-1 floats) → hex + alpha, lossless."""
+    if not c:
+        return None
+    r = round(c.get("r", 0) * 255)
+    g = round(c.get("g", 0) * 255)
+    b = round(c.get("b", 0) * 255)
+    return {
+        "hex": f"#{r:02X}{g:02X}{b:02X}",
+        "alpha": c.get("a", 1),
+        "r": r, "g": g, "b": b,
+    }
+
+
+def _figma_paint(p: Dict) -> Dict:
+    """Normalize one fill/stroke paint entry."""
+    out = {"type": p.get("type"), "visible": p.get("visible", True)}
+    if p.get("type") == "SOLID":
+        out["color"] = _figma_color(p.get("color"))
+        out["opacity"] = p.get("opacity", 1)
+    elif p.get("type") == "IMAGE":
+        out["scaleMode"] = p.get("scaleMode")
+        out["imageRef"] = p.get("imageRef")
+    elif p.get("type", "").startswith("GRADIENT"):
+        out["gradientStops"] = [
+            {"position": s.get("position"), "color": _figma_color(s.get("color"))}
+            for s in p.get("gradientStops", [])
+        ]
+    return out
+
+
+_LAYOUT_KEYS = (
+    "layoutMode", "primaryAxisAlignItems", "counterAxisAlignItems",
+    "itemSpacing", "paddingLeft", "paddingRight", "paddingTop",
+    "paddingBottom", "layoutAlign", "layoutGrow",
+)
+
+_TEXT_STYLE_KEYS = (
+    "fontFamily", "fontPostScriptName", "fontWeight", "fontSize",
+    "lineHeightPx", "lineHeightPercentFontSize", "letterSpacing",
+    "textAlignHorizontal", "textAlignVertical", "textCase", "textDecoration",
+)
+
+
+def extract_node_spec(node: Dict) -> Dict:
+    """
+    Recursively extract the full design spec of a Figma node.
+
+    Every node contributes: id, name, type, absolute bounds, fills, strokes
+    (+ weight/align), corner radius, effects (drop shadows with offset,
+    radius, spread, color), auto-layout values, and — for TEXT layers — the
+    complete type style (family, PostScript name, weight, size, line height
+    px + %, letter spacing, alignment, case, decoration).
+    """
+    spec: Dict[str, Any] = {
+        "id": node.get("id"),
+        "name": node.get("name"),
+        "type": node.get("type"),
+    }
+
+    bb = node.get("absoluteBoundingBox")
+    if bb:
+        spec["bounds"] = {
+            "x": bb.get("x"), "y": bb.get("y"),
+            "width": bb.get("width"), "height": bb.get("height"),
+        }
+
+    fills = [_figma_paint(f) for f in (node.get("fills") or [])]
+    if fills:
+        spec["fills"] = fills
+
+    strokes = [_figma_paint(s) for s in (node.get("strokes") or [])]
+    if strokes:
+        spec["strokes"] = strokes
+        spec["strokeWeight"] = node.get("strokeWeight")
+        spec["strokeAlign"] = node.get("strokeAlign")
+
+    if node.get("cornerRadius") is not None:
+        spec["cornerRadius"] = node.get("cornerRadius")
+    if node.get("rectangleCornerRadii") is not None:
+        spec["rectangleCornerRadii"] = node.get("rectangleCornerRadii")
+
+    effects = []
+    for e in node.get("effects") or []:
+        eff: Dict[str, Any] = {"type": e.get("type"), "visible": e.get("visible", True)}
+        if e.get("type") == "DROP_SHADOW":
+            off = e.get("offset", {})
+            eff.update({
+                "x": off.get("x"), "y": off.get("y"),
+                "radius": e.get("radius"), "spread": e.get("spread"),
+                "color": _figma_color(e.get("color")),
+            })
+        effects.append(eff)
+    if effects:
+        spec["effects"] = effects
+
+    layout = {k: node[k] for k in _LAYOUT_KEYS if k in node}
+    if layout:
+        spec["layout"] = layout
+
+    if node.get("type") == "TEXT":
+        style = node.get("style", {})
+        spec["text"] = {
+            "characters": node.get("characters"),
+            **{k: style[k] for k in _TEXT_STYLE_KEYS if k in style},
+        }
+
+    children = [extract_node_spec(c) for c in (node.get("children") or [])]
+    if children:
+        spec["children"] = children
+
+    return spec

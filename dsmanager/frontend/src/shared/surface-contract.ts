@@ -59,6 +59,10 @@ export interface AgentCardElementAttrs {
   'model-name'?: string;
   'last-used'?: string;
   'created-at'?: string;
+  'avatar-url'?: string;
+  'category-color'?: string;
+  'category-title-color'?: string;
+  'category-text-color'?: string;
 }
 
 /** Attributes for <chat-navigation-bar> — right-column tab bar + gripper. */
@@ -135,7 +139,7 @@ export const LIT_COMPONENT_MANIFEST: readonly LitComponentEntry[] = [
     file: 'components/lit/agent-card-element.ts',
     surface: 'console',
     status: 'active',
-    propCount: 12,
+    propCount: 16,
     slots: SLOT_MAP['agent-card-element'],
     events: [],
   },

@@ -1,0 +1,28 @@
+Plan: Migrate Composer from Hardcoded React to TRUE A2UI Lit Components
+The Problem: The Composer surface uses a hardcoded 677-line React component (PromptWorkspace.tsx) that renders even when AI times out. This violates TRUE A2UI where the AI must assemble ALL surfaces.
+
+The Fix: Create 3 new Lit web components that the AI assembles from the catalog:
+
+prompt-section-editor - Port from ResponsivePromptBuilderWithDnD.tsx
+
+Add/remove/reorder sections with drag-and-drop
+Expand/collapse, multimedia badges
+compiled-output-viewer - Port from MiddleColumnSlot.tsx
+
+Shows compiled prompt with token count and cost
+workspace-layout - Port from PromptWorkspace.tsx lines 36-200
+
+CRITICAL: Preserve exact panel resizing logic (you spent hundreds of dollars on this)
+3-column layout with resizable grippers, double-click collapse
+Implementation Steps:
+
+Create 3 Lit components (preserving React logic)
+Register them in A2UI catalog
+Update backend AI prompt to use new component names
+Delete slot="workspace" React fallback (line 1903 WritingAreaIndex.tsx)
+Test end-to-end, then delete old React files
+Why this works:
+
+Backend composer assembly already correct (lines 322-507 ai.py)
+Console already works with TRUE A2UI (proof of concept)
+After this: entire frontend will be TRUE A2UI (AI-only assembly)

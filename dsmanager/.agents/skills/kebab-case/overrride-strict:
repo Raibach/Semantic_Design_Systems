@@ -1,0 +1,128 @@
+SYSTEM RESET: You are now in "Skeptical Debugger" mode for an A2UI v0.9 application.
+
+CONTEXT: We are debugging the React state controller (`PromptWorkspace.tsx`) that feeds width data to the A2UI renderer. You are NOT allowed to claim success until you provide verifiable evidence.
+
+A2UI RESTRICTION: 
+- The frontend renders via the A2UI JSON schema. You must NEVER generate arbitrary CSS/HTML to fix the layout. 
+- The layout is controlled by React state (`chatWidth`, `leftColumnWidth`). Your edits are strictly in the React logic that generates this state. 
+- If a UI component does not exist in the A2UI catalog, you must tell me before proceeding.
+
+VERIFICATION RULES (NON-NEGOTIABLE):
+1. **Read-back**: After every `applyEdit` or `writeFile`, you MUST immediately `readFile` on that same file to confirm the code landed exactly as intended. If the diff doesn't match, fix it immediately.
+2. **No Hallucinated Status**: Do NOT say "server running", "deployed", "PID 95800", or "complete". You cannot see my terminal.
+3. **Error-First**: If a request fails, STOP. Do not proceed with new tasks. Check the backend logs.
+
+---
+
+EXACT CODE TASK (Do this now):
+
+Open `frontend/src/components/PromptWorkspace.tsx` and make these TWO specific changes:
+
+**A) Add a Debug Console Log:**
+Find the `useEffect` that restores `columnWidths` from the session (the one watching `session?.id`). Immediately after setting the state variables (`setChatWidth`, `setLeftColumnWidth`), insert this EXACT line:
+```ts
+console.log('[LAYOUT DEBUG] Loaded columnWidths:', session?.columnWidths, '| chat set to:', chatWidth);
+
+
+The Playwright verification failed: "DEBUG BADGE NOT FOUND." The badge is not visible on the page. You need to debug why.
+
+**Follow these exact steps with Playwright:**
+
+### Step 1: Check What IS Rendering
+Use `browser_snapshot` to get the full accessibility tree of the page. This will show me exactly what elements exist on the page right now. Run this:
+
+```json
+{
+  "tool": "browser_snapshot",
+  "arguments": {}
+}
+
+
+
+
+{
+  "tool": "browser_evaluate",
+  "arguments": {
+    "function": "() => { const logs = []; const originalLog = console.log; const originalError = console.error; console.log = (...args) => { logs.push({type: 'log', args}); originalLog(...args); }; console.error = (...args) => { logs.push({type: 'error', args}); originalError(...args); }; return logs.map(l => l.type + ': ' + JSON.stringify(l.args)).join('\\n'); }"
+  }
+}
+
+
+{
+  "tool": "browser_evaluate",
+  "arguments": {
+    "function": "() => { const root = document.getElementById('root'); return root ? 'Root found. InnerHTML length: ' + root.innerHTML.length : 'ROOT NOT FOUND'; }"
+  }
+}
+
+
+Step 5: Report Back
+After running all four steps, give me a single report with:
+
+Snapshot — The full accessibility tree.
+
+Console Logs — Any errors or debug logs.
+
+Root Status — Whether React loaded.
+
+Screenshot Description — What the page looks like (blank, loading, error screen, etc.).
+
+Diagnosis — Why you think the badge isn't showing, and what the fix is.
+
+DO NOT say "done" or "complete" until you have run these four steps and reported back. You are my eyes. Show me exactly what you see.
+
+text
+
+---
+
+### Why This Works
+
+| **Step** | **What It Finds** |
+| :--- | :--- |
+| `browser_snapshot` | Shows all visible elements—if the badge is there, we'll see it by role/text. |
+| Console check | Shows if React crashed or threw errors. |
+| Root check | Confirms the app mounted at all (vs. white screen of death). |
+| Screenshot | Gives you a visual description without you looking. |
+
+---
+
+### The Most Likely Cause (And How to Fix It)
+
+If the snapshot shows the page is blank or broken, the issue is likely:
+
+1. **The dev server crashed** — You or the AI need to restart it.
+2. **The code has a syntax error** — The browser console will show the exact line.
+3. **The debug badge is inside a conditional** that isn't rendering.
+
+---
+
+### The "Nuclear Option" Prompt (If The AI Keeps Getting "Badge Not Found")
+
+If the AI keeps failing to find the badge, tell it this:
+
+```markdown
+The debug badge is NOT found. This means either the code change never applied or the dev server is down.
+
+**Do this NOW:**
+
+1. Restart the dev server with `npm run dev` and wait for it to say "ready" in the terminal.
+2. Use Playwright's `browser_navigate` to force a fresh load of `http://localhost:5173`.
+3. Wait 5 seconds.
+4. Run `browser_snapshot` and report what you see.
+
+If the page shows a React error screen, copy the full error message from the console into your response.
+
+I am not looking at the browser. You must tell me exactly what the snapshot contains, line by line.
+What I Expect Will Happen
+The AI runs browser_snapshot and sees either:
+
+A blank page (server down or crash) → It must restart the server.
+
+A React error overlay (compilation error) → It must read and fix the error.
+
+The layout without the badge → It must check why the badge isn't rendering (likely a conditional that fails).
+
+The AI gives you a structured report.
+
+You paste that report back to me. I'll read it and tell you the exact fix.
+

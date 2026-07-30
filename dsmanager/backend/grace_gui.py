@@ -1,15 +1,16 @@
 """
 Grace GUI module for the prompt-composer-console backend.
-Supports multiple model providers with fallback:
-1. NVIDIA NIM Cloud API (if available)
-2. DeepInfra hosted endpoint (fallback)
+Uses NVIDIA NIM for all generation paths.
 """
 
 import os
 import time
 from typing import Any, Dict, List, Optional
 
-import requests
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # A2UI MISSION HEADER — Prepended to EVERY request for maximum attention weight
@@ -25,21 +26,14 @@ ERROR HANDLING: Use <error-banner message="..."/> only. Never create debug pages
 </critical_protocol>
 """
 
-# Model provider configuration - DeepSeek primary, NVIDIA fallback
+# Model provider configuration - NVIDIA primary
 MODEL_PROVIDERS = {
-    "deepseek": {
-        "name": "DeepSeek API",
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-v4-flash",  # Fast model, no reasoning overhead
-        "enabled": True,
-        "priority": 1,
-    },
     "nvidia_nim": {
         "name": "NVIDIA NIM Cloud API",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
-        "enabled": False,  # Disabled - too slow and unreliable
-        "priority": 2,
+        "model": "nvidia/nemotron-3-ultra-550b-a55b",
+        "enabled": True,
+        "priority": 1,
     },
 }
 
@@ -329,12 +323,14 @@ def query_llm(
         messages.append({"role": "system", "content": MISSION_HEADER})
     messages.append({"role": "user", "content": question})
 
-    # console_assembly needs more tokens — 10 cards × ~400 chars each
-    max_tokens = 8000 if mode == "console_assembly" else 1500
+    # Preserve the same request shape used by the prior provider path,
+    # but keep the assembly request compact so it returns before the UI aborts.
+    max_tokens = 8000
+    request_temperature = 0.0 if mode == "console_assembly" else temperature
 
     base_payload = {
         "messages": messages,
-        "temperature": temperature,
+        "temperature": request_temperature,
         "max_tokens": max_tokens,
         "stream": False,
     }
@@ -353,162 +349,38 @@ def query_llm(
             "Please configure at least one provider in grace_gui.py."
         )
 
-    for provider in enabled_providers:
-        provider_name = provider["name"]
-        base_url = provider["base_url"]
-        model_name = model if model else provider["model"]
+    provider = enabled_providers[0]
+    provider_name = provider["name"]
+    base_url = provider["base_url"]
+    model_name = model if model else provider["model"]
 
-        print(f"[{provider_name}] Attempting request with model: {model_name}")
+    print(f"[{provider_name}] Attempting request with model: {model_name}")
 
-        payload = {**base_payload, "model": model_name}
+    payload = {**base_payload, "model": model_name}
 
-        # Add extra_body params (for NVIDIA reasoning model)
-        if "extra_body" in provider:
-            for key, value in provider["extra_body"].items():
-                payload[key] = value
+    api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY")
+    if not api_key:
+        print(f"[{provider_name}] Skipping: no API key found.")
+        print("   Set NVIDIA_API_KEY or NGC_API_KEY environment variable.")
+        return "Error: NVIDIA API key is not configured."
 
-        headers = {"Content-Type": "application/json"}
+    try:
+        client = OpenAI(base_url=base_url, api_key=api_key)
+        response = client.chat.completions.create(**payload)
+        message = response.choices[0].message
+        content = (message.content or "").strip()
+        if not content and getattr(message, "reasoning_content", None):
+            content = message.reasoning_content.strip()
 
-        # Resolve API key per provider
-        if provider_name == "NVIDIA NIM Cloud API":
-            api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NGC_API_KEY")
+        if not content:
+            return "Error: NVIDIA returned an empty response."
 
-            if not api_key:
-                credentials_file = os.path.join(
-                    os.path.dirname(__file__), "..", "nvidia_credentials.env"
-                )
-                if os.path.exists(credentials_file):
-                    with open(credentials_file, "r") as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line or line.startswith("#"):
-                                continue
-                            if line.startswith("NVIDIA_API_KEY="):
-                                api_key = line.split("=", 1)[1].strip().strip("\"'")
-                                break
-                            elif line.startswith("NGC_API_KEY="):
-                                api_key = line.split("=", 1)[1].strip().strip("\"'")
-                                break
-
-            if not api_key:
-                print(f"[{provider_name}] Skipping: no API key found.")
-                print("   Set NVIDIA_API_KEY or NGC_API_KEY environment variable.")
-                continue
-
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        elif provider_name == "DeepSeek API":
-            api_key = os.getenv("DEEPSEEK_API_KEY")
-
-            if not api_key:
-                credentials_file = os.path.join(
-                    os.path.dirname(__file__), "..", "nvidia_credentials.env"
-                )
-                if os.path.exists(credentials_file):
-                    with open(credentials_file, "r") as f:
-                        for line in f:
-                            line = line.strip()
-                            if not line or line.startswith("#"):
-                                continue
-                            if line.startswith("DEEPSEEK_API_KEY="):
-                                api_key = line.split("=", 1)[1].strip().strip("'\"")
-                                break
-
-            if not api_key:
-                print(f"[{provider_name}] Skipping: no API key found.")
-                print("   Set DEEPSEEK_API_KEY environment variable.")
-                continue
-
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        # Retry loop for this provider
-        for attempt in range(1, MAX_RETRIES + 1):
-            endpoint = f"{base_url}/chat/completions"
-            print(f"[{provider_name}] Attempt {attempt}/{MAX_RETRIES}: POST {endpoint}")
-
-            try:
-                response = requests.post(
-                    endpoint,
-                    headers=headers,
-                    json=payload,
-                    timeout=LLM_TIMEOUT,
-                )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    message = result.get("choices", [{}])[0].get("message", {})
-                    content = message.get("content", "").strip()
-
-                    # Fall back to reasoning_content for reasoner models
-                    if not content:
-                        reasoning_content = message.get("reasoning_content", "").strip()
-                        if reasoning_content:
-                            content = reasoning_content
-                            print(f"[{provider_name}] Using reasoning_content ({len(content)} chars).")
-
-                    if not content:
-                        print(f"[{provider_name}] Empty response from model.")
-                        break  # try next provider
-
-                    # ── Backend tag interception ──
-                    content = _process_backend_tags(content, context, prompt_id)
-
-                    print(
-                        f"[{provider_name}] Success. Response length: {len(content)} chars."
-                    )
-                    return content
-
-                elif response.status_code == 401:
-                    print(
-                        f"[{provider_name}] Authentication failed (401). Check API key."
-                    )
-                    break  # no point retrying auth errors
-
-                elif response.status_code == 404:
-                    print(
-                        f"[{provider_name}] Endpoint not found (404). Skipping provider."
-                    )
-                    break
-
-                else:
-                    print(
-                        f"[{provider_name}] HTTP {response.status_code} on attempt {attempt}."
-                    )
-                    if attempt < MAX_RETRIES:
-                        time.sleep(RETRY_DELAY)
-
-            except requests.exceptions.ConnectionError as ce:
-                print(
-                    f"[{provider_name}] Connection error on attempt {attempt}/{MAX_RETRIES}: {ce}"
-                )
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY)
-
-            except requests.exceptions.Timeout:
-                print(
-                    f"[{provider_name}] Request timed out on attempt {attempt}/{MAX_RETRIES}."
-                )
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY)
-
-            except Exception as exc:
-                print(f"[{provider_name}] Unexpected error on attempt {attempt}: {exc}")
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY)
-
-        print(f"[{provider_name}] All attempts exhausted. Trying next provider...")
-
-    # All providers failed
-    tried = ", ".join(p["name"] for p in enabled_providers)
-    return (
-        f"Error: Could not get a response from any model provider.\n\n"
-        f"Providers tried: {tried}\n\n"
-        "Possible causes:\n"
-        "  • NVIDIA NIM: Check NVIDIA_API_KEY / NGC_API_KEY is set and valid.\n"
-        "  • DeepInfra: Check DEEPINFRA_API_KEY is set and valid.\n"
-        "  • Verify your internet connection.\n"
-        "  • Check provider status pages for outages."
-    )
+        content = _process_backend_tags(content, context, prompt_id)
+        print(f"[{provider_name}] Success. Response length: {len(content)} chars.")
+        return content
+    except Exception as exc:
+        print(f"[{provider_name}] Request failed: {exc}")
+        return f"Error: NVIDIA request failed: {exc}"
 
 
 def _process_backend_tags(response_text: str, workspace_context: str = "", prompt_id: str = "unknown") -> str:

@@ -166,6 +166,30 @@ TABLE_DEFINITIONS = {
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         )
+    """,
+    # Category registry — every category owns a color that tints its console
+    # card (agent-card-element background). Global list for now; a dropdown
+    # editor in the composer UI will manage these later.
+    'categories': """
+        CREATE TABLE IF NOT EXISTS categories (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name VARCHAR(100) UNIQUE NOT NULL,
+            color VARCHAR(20) NOT NULL DEFAULT '#658D1B',
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """,
+    # Figma design-spec cache — extracted style specs (fills, strokes,
+    # effects, fonts, layout, bounds) pulled from the Figma API and served
+    # to the Lit catalog. PostgreSQL caches; Figma authors.
+    'figma_specs': """
+        CREATE TABLE IF NOT EXISTS figma_specs (
+            file_key VARCHAR(100) NOT NULL,
+            node_id VARCHAR(100) NOT NULL,
+            name VARCHAR(255),
+            spec JSONB NOT NULL DEFAULT '{}',
+            synced_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (file_key, node_id)
+        )
     """
 }
 
@@ -180,6 +204,15 @@ COLUMN_MIGRATIONS = [
     # prompt_sessions table
     ("prompt_sessions", "left_column_content", "TEXT"),
     ("prompt_sessions", "conversation_id", "UUID REFERENCES conversations(id) ON DELETE SET NULL"),
+    # prompt_sessions — console card fields (agent-card-element, Figma 40000717:17091)
+    ("prompt_sessions", "status", "VARCHAR(20) DEFAULT 'Active'"),
+    ("prompt_sessions", "likes", "INTEGER DEFAULT 0"),
+    ("prompt_sessions", "model_name", "VARCHAR(100)"),
+    ("prompt_sessions", "team_name", "VARCHAR(100)"),
+    ("prompt_sessions", "avatar_url", "TEXT"),
+    # categories — per-category theme text colors (CARD_THEMES titleColor/textColor)
+    ("categories", "title_color", "VARCHAR(20)"),
+    ("categories", "text_color", "VARCHAR(20)"),
     # prompt_versions table
     ("prompt_versions", "version_number", "INTEGER NOT NULL DEFAULT 0"),
     # ai_suggestions table
@@ -217,6 +250,27 @@ VALUES (
     TRUE
 )
 ON CONFLICT (id) DO NOTHING;
+"""
+
+# Default category palette + theme text colors — every value sourced 1:1
+# from the design system; the AI never picks colors:
+#   Writing        — from the Figma console-card node itself (40000717:17091):
+#                    fill #658D1B, category gold #F6C031, dark text #2A2836
+#   Design System  — CARD_THEMES.ds       (PromptDashboardCanvas.tsx)
+#   Learning       — CARD_THEMES.learning
+#   Graphics       — CARD_THEMES.graphics
+#   Coding         — no CARD_THEMES entry; per the app's own resolveTheme()
+#                    fallback rule (DEFAULT_THEME = ds) it inherits Design
+#                    System's theme until a distinct one is assigned.
+# Updating a row is a data change, not a code change.
+DEFAULT_CATEGORIES_SQL = """
+INSERT INTO categories (name, color, title_color, text_color) VALUES
+    ('Writing',         '#658D1B', '#F6C031', '#2A2836'),
+    ('Design System',   '#10455F', '#fb8d67', '#fff'),
+    ('Learning Module', '#589678', '#f6c031', '#fff'),
+    ('Graphics',        '#D3DF44', '#484460', '#484460'),
+    ('Coding',          '#10455F', '#fb8d67', '#fff')
+ON CONFLICT (name) DO NOTHING;
 """
 
 # Stored procedure for creating prompt sessions
@@ -460,7 +514,7 @@ def init_database():
         table_order = [
             'users', 'projects', 'conversations', 'conversation_messages',
             'user_memories', 'prompt_sessions', 'prompt_versions', 'ai_suggestions', 'tags',
-            'prompt_context'
+            'prompt_context', 'categories', 'figma_specs'
         ]
 
         for table_name in table_order:
@@ -517,6 +571,14 @@ def init_database():
             print("  Default user created or already exists")
         except Exception as e:
             print(f"  Warning: Could not create default user: {e}")
+
+        # Step 6: Seed default categories (name → card color)
+        print("Seeding default categories...")
+        try:
+            cur.execute(DEFAULT_CATEGORIES_SQL)
+            print("  Default categories seeded or already exist")
+        except Exception as e:
+            print(f"  Warning: Could not seed categories: {e}")
 
         cur.close()
         conn.close()
