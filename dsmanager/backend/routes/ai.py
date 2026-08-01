@@ -27,6 +27,7 @@ from figma_service import (
     get_dev_resources, search_file, extract_node_spec,
 )
 from milvus_rest import MilvusREST
+from role_caps import get_filtered_manifest, get_user_role, get_role_capabilities
 
 router = APIRouter()
 
@@ -71,15 +72,47 @@ def _extract_json_payload(response_text: str) -> Any:
 # ============================================
 
 @router.get("/api/ai/manifest")
-async def ai_manifest():
-    """Serve the AI playground component manifest for system prompt injection."""
+async def ai_manifest(
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """
+    Serve the AI playground component manifest for system prompt injection.
+
+    FILTERED BY ROLE: The manifest is filtered by the user's departmental role
+    (users.prompt_role). The AI literally cannot emit tags that aren't in its
+    system prompt — role filtering happens here, before the LLM is called.
+
+    See backend/role_caps.py and frontend/src/shared/role-caps.ts for the
+    role-to-capability matrix.
+    """
+    uid = get_user_id_from_header(x_user_id)
+    role = get_user_role(uid)
+
     manifest_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist", "manifest.json")
     alt_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "src", "shared", "manifest.json")
     for path in [manifest_path, alt_path]:
         if os.path.exists(path):
             with open(path, "r") as f:
-                return {"manifest": json.load(f), "source": path}
-    return {"manifest": {}, "source": "not found", "tags": ["ai-surface-sandbox", "agent-card", "chat-navigation-bar", "status-indicator", "control-bar"]}
+                full_manifest = json.load(f)
+            filtered = get_filtered_manifest(uid, full_manifest)
+            return {
+                "manifest": filtered["manifest"],
+                "source": path,
+                "role": role,
+                "tabs": filtered["tabs"],
+                "can_author": filtered["can_author"],
+                "tag_count": filtered["tag_count"],
+            }
+    # No manifest file — return role-filtered tag list from role_caps
+    caps = get_role_capabilities(role)
+    return {
+        "manifest": {},
+        "source": "not found (role-filtered)",
+        "role": role,
+        "tabs": caps.get("tabs", ["chat"]),
+        "allowed_tags": caps.get("allowed_tags", []),
+        "can_author": caps.get("can_author", False),
+    }
 
 class AISurfaceContext(BaseModel):
     """Context from the current document state."""
@@ -1125,6 +1158,31 @@ Compiled Prompt:
             status_code=500,
             detail=f"Failed to save surface: {str(e)}"
         )
+
+
+@router.get("/api/ai/role-capabilities")
+async def ai_role_capabilities(
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """
+    Return the current user's departmental role and capability set.
+
+    The frontend uses this to:
+    - Filter which tabs are visible in <chat-navigation-bar>
+    - Decide whether to show the prompt builder vs read-only view
+    - Gate governance data views (cost, trace, quality metrics)
+
+    This is the runtime contract between backend role resolution and
+    frontend role-based rendering.
+    """
+    uid = get_user_id_from_header(x_user_id)
+    role = get_user_role(uid)
+    caps = get_role_capabilities(role)
+    return {
+        "user_id": uid,
+        "role": role,
+        "capabilities": caps,
+    }
 
 
 @router.get("/api/admin/audit-logs")

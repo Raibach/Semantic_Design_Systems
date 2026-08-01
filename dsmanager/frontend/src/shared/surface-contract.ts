@@ -42,7 +42,7 @@ export interface AiSurfaceSandboxAttrs {
   /** Lit Boolean: attribute present → true, absent → false. */
   'is-ai-assembling'?: '' | undefined;
   /** Controls which named slot is projected. */
-  'header-tab'?: 'console' | 'composer' | 'evaluation' | 'variables' | 'metadata';
+  'header-tab'?: 'console' | 'composer' | 'evaluation' | 'variables' | 'metadata' | 'trace' | 'tools';
 }
 
 /** Attributes for <agent-card-element> — the four-slot console card. */

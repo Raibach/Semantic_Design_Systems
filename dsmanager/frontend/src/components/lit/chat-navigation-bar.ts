@@ -24,7 +24,7 @@ import { LitElement, html, css } from 'lit';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Valid tab identifiers. */
-export type TabId = 'chat' | 'trace' | 'tools';
+export type TabId = 'chat' | 'trace' | 'tools' | 'evaluation' | 'variables' | 'metadata';
 
 /** Detail payload for the 'tab-change' CustomEvent. */
 export interface TabChangeEventDetail {
@@ -70,6 +70,27 @@ const TABS: TabDef[] = [
     // Wrench / tools icon
     svgPath: 'M20.3125 13.2813C21.6566 13.2813 22.75 12.2299 22.75 10.9375C22.75 9.6451 21.6566 8.5937 20.3125 8.5937C19.2546 8.5937 18.3612 9.2488 18.0247 10.1563H13.3364L19.2683 4.4525C19.586 4.59898 19.9374 4.6875 20.3125 4.6875C21.6566 4.6875 22.75 3.63617 22.75 2.34375C22.75 1.05133 21.6566 0 20.3125 0C18.9684 0 17.875 1.05133 17.875 2.34375C17.875 2.70461 17.9672 3.04219 18.1192 3.34781L11.375 9.8328V4.68758C11.375 3.82625 12.1038 3.12508 13 3.12508H14.625V1.56258H13C12.0248 1.56258 11.1588 1.98641 10.5625 2.6425C9.9662 1.98641 9.1002 1.56258 8.125 1.56258H7.3125C3.28055 1.56258 0 4.71656 0 8.5938V13.2813C0 17.1586 3.28055 20.3126 7.3125 20.3126H8.125C9.1002 20.3126 9.9662 19.8887 10.5625 19.2327C11.1588 19.8887 12.0248 20.3126 13 20.3126H14.625V18.7501H13C12.1038 18.7501 11.375 18.0489 11.375 17.1876V12.0423L18.1192 18.5273C17.9672 18.8329 17.875 19.1705 17.875 19.5314C17.875 20.8238 18.9684 21.8752 20.3125 21.8752C21.6566 21.8752 22.75 20.8238 22.75 19.5314C22.75 18.239 21.6566 17.1877 20.3125 17.1877C19.9374 17.1877 19.5861 17.2762 19.2683 17.4227L13.3364 11.7189H18.0247C18.3612 12.6264 19.2546 13.2813 20.3125 13.2813Z',
   },
+  {
+    id: 'evaluation',
+    label: 'Evaluate',
+    tooltip: 'A/B testing and model comparison',
+    // Bar chart / evaluation icon
+    svgPath: 'M4 22H2V10H4V22ZM20.5 22H18.5V2H20.5V22ZM12.25 22H10.25V6H12.25V22Z',
+  },
+  {
+    id: 'variables',
+    label: 'Variables',
+    tooltip: 'Design system variables and tokens',
+    // Braces / variables icon
+    svgPath: 'M9.4 22C7.6 22 6.4 21.2 5.6 19.5C5.3 18.8 5 18.2 4.5 17.7C4 17.2 3.5 16.9 2.8 16.7L2 16.4V14.4L3.2 14.7C4.3 15 5.2 15.6 5.9 16.4C6.6 17.2 7.1 18.1 7.5 19.1C7.9 19.9 8.3 20.2 9.4 20.2H10V22H9.4ZM14.6 22C12.8 22 11.6 21.2 10.8 19.5C10.5 18.8 10.2 18.2 9.7 17.7C9.2 17.2 8.7 16.9 8 16.7L7.2 16.4V14.4L8.4 14.7C9.5 15 10.4 15.6 11.1 16.4C11.8 17.2 12.3 18.1 12.7 19.1C13.1 19.9 13.5 20.2 14.6 20.2H15.2V22H14.6ZM5.5 11H18.5V9H5.5V11ZM5.5 7H18.5V5H5.5V7Z',
+  },
+  {
+    id: 'metadata',
+    label: 'Metadata',
+    tooltip: 'Cost, compliance, and governance data',
+    // Document / metadata icon
+    svgPath: 'M14 2H6C4.9 2 4 2.9 4 4V20C4 21.1 4.9 22 6 22H18C19.1 22 20 21.1 20 20V8L14 2ZM16 18H8V16H16V18ZM16 14H8V12H16V14ZM13 9V3.5L18.5 9H13Z',
+  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -81,11 +102,19 @@ export class ChatNavigationBar extends LitElement {
   static properties = {
     activeTab: { type: String, attribute: 'active-tab' },
     collapsed: { type: Boolean },
+    allowedTabs: { type: String, attribute: 'allowed-tabs' },
   };
 
   // ── Defaults ─────────────────────────────────────────────────────────────
   activeTab: TabId = 'chat';
   collapsed: boolean = false;
+  /**
+   * Comma-separated list of tab IDs to show, filtered by the user's
+   * departmental role. Set by InteractiveChatInterface from the
+   * /api/ai/role-capabilities response.
+   * If unset, all tabs are shown (backwards-compatible dev default).
+   */
+  allowedTabs: string = '';
 
   // ── Drag state (not reactive — no re-render needed) ──────────────────────
   private _isDragging: boolean = false;
@@ -545,6 +574,12 @@ export class ChatNavigationBar extends LitElement {
   render() {
     const currentTab = this.activeTab;
 
+    // Filter tabs by role — if allowedTabs is set, only show those.
+    // If unset (dev mode / no role), show all (backwards-compatible).
+    const visibleTabs = this.allowedTabs
+      ? TABS.filter(tab => this.allowedTabs.split(',').includes(tab.id))
+      : TABS;
+
     return html`
       <div class="sb">
         <!-- Logo -->
@@ -556,8 +591,8 @@ export class ChatNavigationBar extends LitElement {
           </div>
         </div>
 
-        <!-- Tab buttons -->
-        ${TABS.map(
+        <!-- Tab buttons (role-filtered) -->
+        ${visibleTabs.map(
           (tab) => html`
             <button
               type="button"
@@ -697,6 +732,7 @@ declare module 'react' {
         React.HTMLAttributes<ChatNavigationBar> & {
           'active-tab'?: TabId | '';
           collapsed?: 'true' | 'false';
+          'allowed-tabs'?: string;
           ref?: React.Ref<ChatNavigationBar>;
         },
         ChatNavigationBar

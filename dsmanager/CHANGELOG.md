@@ -3,6 +3,268 @@
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
 
+## 2026-08-01 (PM2): Role-Based Governance Architecture — Multi-Role Access, Milvus Repurposing, Trace System Design
+
+**This is the entry where the system stopped being a prompt builder and became a multi-role enterprise platform.** The insight: everyone in the company opens the same prompt package — governance, UX design, research, product — but they each need to see completely different things. The same data, viewed through completely different lenses, gated by departmental role. This entry documents the architecture that makes that possible, the Milvus governance repurposing, the four user personas for Figma design work, and the role-to-capability matrix that connects them.
+
+### The Philosophy: Same Package, Different Lenses
+
+Agnes in Accounting opens a prompt package. She sees the prompt content and the chat tab. She runs the prompt, gets her answer, moves on. She never sees trace data, cost metrics, or model performance.
+
+A Director opens the same prompt package. She sees none of the prompt builder — she's observing, not authoring. Instead she sees: cost per invocation, change history (who changed what and when), hallucination rates, cross-departmental usage patterns, the data dignity ledger. Her question is "how much did this prompt cost the company, and is the AI behaving safely?"
+
+A UX Designer opens the same package. She sees: component usage metrics, Figma spec compliance, A/B test results, design system library management tools. Her question is "how are the components performing, and is the design system being followed?"
+
+A Researcher opens the same package. She sees: writing tools, research synthesis capabilities, training data quality, feedback patterns, export. Her question is "can I synthesize my discovery notes and cross-reference other prompts?"
+
+A Product Manager opens the same package. She sees: layout tools, wireframe assembly, version comparisons, compiled output. Her question is "can I assemble wireframes using approved design system components for ideation?"
+
+**Same data. Different lenses. One interface.** The role determines what you see; the session permission determines what you can do. This is the core architectural principle.
+
+### Two Dimensions of Access
+
+**Dimension 1 — Departmental Role (`users.prompt_role`)**
+
+This is per-user. It follows you across all packages. It drives what you SEE — which tabs, which tools, which data views. Values: `governance` | `ux-design` | `research` | `product` | `basic`.
+
+This column existed in the database (`init_db.py:692`, default `'viewer'`) but was never queried by any backend code. It was a defined-but-unused column — the migration created it, nobody read it. This entry wires it in.
+
+**Dimension 2 — Session Permission (`session_permissions.role`)**
+
+This is per-package. You might be `owner` of accounting prompts but `viewer` on the design system prompts. It drives what you can DO — edit, save, share, transfer. Values: `owner` | `editor` | `viewer`.
+
+This was already enforced in `prompt_sessions_api.py` (owner/editor can write, viewer can only read). No changes needed there.
+
+**The intersection:** When Agnes (`prompt_role='basic'`, `session_permissions.role='viewer'`) opens a prompt package, she sees the prompt content read-only and the chat tab. When a Director (`prompt_role='governance'`, `session_permissions.role='viewer'`) opens the same package, she sees governance data but not the prompt builder. Both are `viewer` on the session — but their departmental role changes what's visible.
+
+### The Four Departmental Personas (+ Basic)
+
+These personas are the specification for the Figma design work. Each persona's tab list and tag list defines what screens to design.
+
+**1. GOVERNANCE — "How much did this cost, and is the AI safe?"**
+- Persona: Corporate director, compliance officer, department head
+- Tabs: `trace`, `metadata`
+- Tags: `version-trace`, `status-indicator`, `error-banner`, `dynamic-button`
+- Governance tables: `grace_decisions`, `grace_health_metrics`, `audit_logs`, `usage_metrics`, `data_dignity_ledger`, `prompt_history`, `memory_provenance`
+- Can author: No (observing, not authoring)
+- Sees: Cost data, decision traces, quality metrics, cross-departmental data
+- PLANNED tags (not yet in registry): `cost-dashboard`, `audit-log-view`, `hallucination-report`
+
+**2. UX DESIGN — "How are the components performing?"**
+- Persona: Design system manager, component librarian
+- Tabs: `chat`, `trace`, `tools`, `variables`
+- Tags: `prompt-section-editor`, `compiled-output-viewer`, `workspace-layout`, `toggle_code_view`, `output-panel`, `version-trace`, `status-indicator`, `error-banner`, `dynamic-button`
+- Governance tables: `prompt_versions`, `prompt_artifacts`, `prompt_feedback`, `prompt_ratings`, `figma_specs`, `tag_definitions`
+- Can author: Yes
+- Sees: Quality metrics (not cost, not cross-departmental)
+- PLANNED tags: `figma-spec`, `component-catalog`, `ab-test-result`
+
+**3. RESEARCH — "Can I synthesize and cross-reference?"**
+- Persona: Researcher, analyst, synthesizer
+- Tabs: `chat`, `trace`, `evaluation`
+- Tags: Full Lexical editor suite (`load_tool`, `set_content`, `format_*`, `insert_*`, `undo`, `redo`, `export`, `check_writing`, `apply_suggestion`, `start_dictation`, `stop_dictation`, etc.)
+- Governance tables: `training_data`, `prompt_feedback`, `prompt_comments`, `prompt_versions`
+- Can author: Yes
+- Sees: Quality metrics (not cost, not cross-departmental, not decision trace)
+
+**4. PRODUCT — "Can I assemble wireframes for ideation?"**
+- Persona: Product manager, product designer
+- Tabs: `chat`, `trace`, `tools`
+- Tags: `prompt-section`, `save-button`, `run-button`, `output-panel`, `version-trace`, `layout-row`, `layout-col`, `prompt-section-editor`, `compiled-output-viewer`, `workspace-layout`, `chat-panel`
+- Governance tables: `prompt_versions`, `prompt_artifacts`, `prompt_feedback`, `prompt_ratings`, `prompt_history`
+- Can author: Yes
+- Sees: Decision traces (not cost, not quality metrics, not cross-departmental)
+
+**5. BASIC — "I just need to run this prompt."**
+- Persona: Agnes in Accounting — most users
+- Tabs: `chat`
+- Tags: `chat-panel`, `status-indicator`, `error-banner`
+- Governance tables: none
+- Can author: No
+- Sees: Nothing governance-related. Just the prompt and the chat.
+
+### The Governance Schema — 17 Tables Already Built
+
+The database already contains the tables needed for multi-role governance. This was designed correctly from the start; it just wasn't wired to the UI.
+
+| Purpose | Table | Key columns |
+|---------|-------|-------------|
+| AI decision + reasoning trace | `grace_decisions` | `decision`, `reasoning_trace`, `confidence_level`, `was_overridden`, `override_justification` |
+| Hallucination/quality monitoring | `grace_health_metrics` | `hallucination_rate`, `coherence_score`, `creativity_score`, `confidence_avg` |
+| Which memories were used & flagged | `grace_context` | `retrieval_count`, `hallucination_flags`, `relevance_score` |
+| Who did what, when | `audit_logs` | `user_id`, `action`, `resource_type`, `metadata` |
+| Prompt change history | `prompt_history` | `action`, `changes` (JSONB), `user_id` |
+| Versioned prompt content + scores | `prompt_versions` | `version_number`, `compiled_output`, `overall_score`, `score_breakdown` |
+| User feedback & ratings | `prompt_feedback` + `prompt_ratings` | `feedback_type`, `rating`, `curator_notes` |
+| Usage tracking by period | `usage_metrics` | `metric_type`, `count`, `period_month` |
+| Memory provenance (who touched what) | `memory_provenance` | `event_type`, `initiated_by`, `context_type` |
+| Role-based session access | `session_permissions` | `session_id`, `user_id`, `role` |
+| Data dignity / value tracking | `data_dignity_ledger` | `value_usd`, `compensation_status`, `usage_context` |
+| Cross-departmental sharing | `prompt_shares` | `shared_by`, `shared_with`, `permission_level` |
+| Which model generated what | `ai_suggestions` + `prompt_sessions` | `generated_by_model`, `model_name` |
+| User departmental role | `users` | `role`, `prompt_role` |
+
+All governance data is **session-scoped**. Every table has either `session_id` or `conversation_id` (which links to `session_id`). When a Director opens a prompt package, the query is: `SELECT * FROM grace_decisions WHERE session_id = ?` — and the role filter decides which columns and aggregations to show.
+
+### Milvus Architecture — Repurposing for Governance
+
+**The decision: Milvus moves from storing user memories to embedding decision traces for governance pattern recognition.**
+
+This is the architectural pivot that aligns Milvus with the governance vision:
+
+**PostgreSQL = Audit Layer (what happened)**
+- `grace_decisions` records every AI decision with its reasoning trace, confidence level, and whether it was overridden
+- `audit_logs` records who did what, when, from what IP
+- `prompt_history` records every change to every prompt package
+- These are the immutable, queryable, relational records — "what happened"
+
+**Milvus = Governance Layer (pattern recognition)**
+- Embed decision traces as vectors to find similar decision patterns across sessions
+- "This trace looks like 3 other sessions that had hallucination problems" — that's a Milvus similarity search
+- "This session's decision pattern has drifted from its historical baseline" — that's Milvus temporal comparison
+- "Which other prompt packages are making decisions like this one?" — that's Milvus cross-session search
+
+**The Trace Tab = Where Both Layers Meet**
+- `TraceFeed.tsx` already exists as the trace tab component
+- Currently shows browser telemetry (execution logs, API breadcrumbs, Sentry errors) — that's runtime/infrastructure observability
+- Needs rewiring to ALSO pull from PostgreSQL (governance decisions) and Milvus (pattern recognition)
+- The trace tab becomes the surface where audit (PostgreSQL) and governance (Milvus) converge
+
+**Milvus infrastructure already exists:**
+- `backend/milvus_client.py`: generic Milvus client with `insert()`, `search()`, `create_collection()`, `delete_by_filter()`
+- `backend/config.py`: 7 collections registered: `default`, `prompt_versions`, `ai_actions`, `prompt_sessions`, `conversations`, `memories`, `files`
+- Zilliz Cloud cluster connected (`in03-5620992e020c852`, gcp-us-west1)
+- 384-dim embeddings, `bge-small-en` model
+
+**What's missing for Milvus governance (4 gaps):**
+
+1. **Add `"traces"` collection** to `get_all_collections()` in `config.py` — one line
+2. **Embedding pipeline** — after each `grace_decisions` row is written, embed the `reasoning_trace` text and insert into the `traces` collection
+3. **Similarity search endpoint** — `/api/governance/similar-traces?session_id=X&decision_id=Y` returns similar decision patterns
+4. **TraceFeed.tsx rewiring** — pull from DB/Milvus instead of (or alongside) browser telemetry
+
+### Sentry AI Trace — Not Needed
+
+Sentry's AI trace monitors **infrastructure** — latency, token counts, API errors. That's plumbing observability: "is the pipe working?"
+
+The governance trace monitors **decisions** — what the AI chose to do, why, whether it was overridden, whether this pattern has gone wrong before. That's governance: "is the thinking sound?"
+
+Sentry is already wired for error reporting (`TraceFeed.tsx` imports `@sentry/react`). Keep it for that. But Sentry's AI trace API is a different product that solves a different problem. It cannot provide: decision provenance, session-scoped memory access patterns, hallucination rate tracking, cross-departmental cost attribution, or governance pattern recognition. The custom PostgreSQL + Milvus architecture handles all of those.
+
+Don't pay for it. Build the trace tab with PostgreSQL + Milvus. No API dependencies, no per-call pricing, no vendor lock-in on the governance layer.
+
+### What Was Built (Code Changes)
+
+**New files:**
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/shared/role-caps.ts` | Role-to-capability matrix — single source of truth. Maps each departmental role to its tabs, allowed AI tags, governance tables, and capability flags. Exports accessors (`getRoleCapabilities`, `getTabsForRole`, `getTagsForRole`, `roleCanSeeTab`, `roleCanUseTag`, `roleCanAuthor`) and `getRoleManifest()` for backend consumption. |
+| `backend/role_caps.py` | Backend mirror of `role-caps.ts`. Resolves user's departmental role from DB (`users.prompt_role`), returns filtered AI manifest. `get_filtered_manifest(user_id, full_manifest)` filters the tag registry to only tags the user's role permits — the AI literally cannot emit tags that aren't in its system prompt. Falls back to `'basic'` on any error — never blocks rendering. |
+
+**Modified files:**
+
+| File | Change |
+|------|--------|
+| `backend/routes/ai.py` | `/api/ai/manifest` now accepts `X-User-ID` header, calls `get_filtered_manifest()` to return role-filtered tags. New endpoint `GET /api/ai/role-capabilities` returns the user's role + full capability set for frontend consumption. |
+| `frontend/src/components/lit/chat-navigation-bar.ts` | `TabId` expanded from `'chat'|'trace'|'tools'` to include `'evaluation'|'variables'|'metadata'`. New `allowed-tabs` attribute (comma-separated) filters which tabs render. New SVG icons for evaluation, variables, metadata tabs. JSX type declaration updated. |
+| `frontend/src/components/InteractiveChatInterface.tsx` | Fetches `/api/ai/role-capabilities` on mount, stores `allowedTabs` + `userRole` + `roleCaps` in state. Passes `allowed-tabs` to `<chat-navigation-bar>`. If current tab isn't in allowed list, snaps to `'chat'`. New switch cases for `evaluation` and `metadata` tabs with placeholder views. Tab metadata extended for new tabs. |
+| `frontend/src/shared/surface-contract.ts` | `header-tab` enum expanded to include `'trace'|'tools'` alongside existing `'evaluation'|'variables'|'metadata'`. |
+
+**How the role filtering works end-to-end:**
+
+1. User opens a prompt package. Frontend sends `X-User-ID` header.
+2. Backend `role_caps.py` looks up `users.prompt_role` from PostgreSQL.
+3. `/api/ai/manifest` returns only the tags the user's role permits (filtered manifest).
+4. `/api/ai/role-capabilities` returns the user's tabs and capability flags.
+5. Frontend `InteractiveChatInterface` sets `allowedTabs` on `<chat-navigation-bar>`.
+6. `<chat-navigation-bar>` renders only the allowed tabs (Lit component filters `TABS` array).
+7. When the AI assembles a surface, the system prompt only contains the user's allowed tags — the AI cannot emit tags it doesn't know about.
+8. `validate_a2ui_components()` in `deps.py` catches any tag that slips through (zero-trust gate).
+
+**Verification:**
+- Backend: `role_caps.py` imports clean, all 5 roles resolve correctly, `get_filtered_manifest()` filters tags as expected
+- Frontend: `tsc --noEmit` passes with zero TypeScript errors
+- The matrix is a single source of truth — `role-caps.ts` (frontend) and `role_caps.py` (backend) mirror each other. If you change one, change the other.
+
+### What's Not Yet Done (Gaps for Future Work)
+
+1. **Cost per invocation table** — `grace_decisions.request_metadata` (JSONB) could hold token counts, but there's no dedicated cost aggregation. Need a `model_invocations` table (session_id, model_name, token_count, cost_usd, timestamp) or columns on `grace_decisions`.
+
+2. **A/B experiment grouping** — `prompt_sessions.model_name` tracks which model ran, `prompt_versions` tracks versions. But no "experiment" table says "variant A runs GLM-5.2 with prompt v3, variant B runs GLM-4.6 with prompt v2, compare results." One small table.
+
+3. **Department on the user** — `users` has `role` and `prompt_role` but no `department`. `prompt_sessions` has `team_name`. For "Agnes in accounting → impact on Tokyo" attribution, need department-level field. One column.
+
+4. **Milvus `traces` collection + embedding pipeline** — add `"traces"` to `get_all_collections()`, build the embedding pipeline for decision traces, create `/api/governance/similar-traces` endpoint, rewire `TraceFeed.tsx`.
+
+5. **Manifest build script** — `frontend/scripts/generate-manifest.mjs` exists but is NOT wired into the build. `dist/manifest.json` doesn't exist. The `/api/ai/manifest` endpoint falls back to role-filtered tag list from `role_caps.py` (which works, but the full manifest with prop schemas would be better). Need to wire `generate-manifest` into `npm run build`.
+
+6. **`user_is_admin()` in deps.py** — still a stub (env var, no DB lookup). Should be replaced with a DB-backed check or unified with the role system.
+
+7. **TraceFeed.tsx rewiring** — currently shows browser telemetry (Sentry breadcrumbs, fetch interception, logger entries). Needs to ALSO pull from PostgreSQL governance tables and Milvus similarity search. The runtime telemetry layer stays (it's useful); the governance layer gets added alongside it.
+
+8. **Figma design** — the four personas need Figma designs. The tab lists and tag lists in `role-caps.ts` are the specification. Each role's view is a different arrangement of the same underlying surfaces.
+
+### Design Notes for Figma Work
+
+The four personas + basic define five distinct interface configurations:
+
+- **Governance view**: No prompt builder. Trace tab shows cost charts, hallucination rates, change history. Metadata tab shows audit logs and data dignity ledger. Minimal, data-dense, dashboard-like.
+- **UX Design view**: Full composer + trace tab with component usage metrics + tools tab with Figma spec compliance + variables tab with design tokens. Design-system-management focused.
+- **Research view**: Full composer with editor tools + trace tab with quality metrics + evaluation tab for A/B testing. Synthesis-focused.
+- **Product view**: Full composer with layout tools + trace tab with decision traces + tools tab. Wireframe-assembly focused.
+- **Basic view**: Just the prompt content (read-only if viewer) + chat tab. Clean, minimal, no governance data.
+
+The chat-navigation-bar is the pivot point — it shows different tabs per role. The content area renders different views per tab. The prompt builder (left column) is hidden for governance and basic roles. The governance data views (trace, metadata) are hidden for basic role.
+
+Placeholder views are in place for `evaluation` and `metadata` tabs — these are the design targets for the next Figma session.
+
+---
+
+## 2026-08-01 (PM1): Database Management System + Production Deploy + Data Migration
+
+**This is the entry where the database stopped being a liability and became a managed asset.** After $500+ of AI work destroying things over 2 weeks — schema drift, missing tables, `user_id NOT NULL` constraints breaking on every deploy — this session built the tooling to inspect, snapshot, diff, and migrate the database schema with confidence. Production is now a clean mirror of local: 41 tables, 6,458 rows, zero column diffs.
+
+### The Root Cause of $500 in Damage
+
+`conversations.user_id` was `NOT NULL` in the production schema. Local data had `NULL` user_ids (5 conversations, 46 messages — sessions transferred between users, which is the core architectural principle). Every data load failed on the FK constraint. Multiple AI sessions tried to work around it with hacks (triggers, session_replication_role) — all required superuser, which Northflank doesn't grant.
+
+**The fix:** `init_db.py` now defines `conversations.user_id` as nullable, and `POST_COLUMN_MIGRATION_SQL` runs `ALTER TABLE conversations ALTER COLUMN user_id DROP NOT NULL` on every deploy. This is permanent — it runs on every `init_database()` call, so no future deploy can re-introduce the constraint.
+
+### Database Management System (`backend/db_manager.py`)
+
+Three commands, all read-only against the database (only writes to `schema/snapshot.json` on disk):
+
+- **`snapshot`** — captures all tables, columns (name, type, nullable, default), indexes, constraints, functions, row counts. Committed to git as version-controlled source of truth. First snapshot: 41 tables, 60 functions, 6,458 rows.
+- **`inspect`** — prints detailed schema for a specific table.
+- **`diff`** — compares live DB against the committed snapshot, reports added/removed/modified columns and nullable changes.
+
+### Schema Repair (`backend/init_db.py`)
+
+- Was: 12 tables defined, never called at startup
+- Now: 41 tables defined, 50 column migrations, `POST_COLUMN_MIGRATION_SQL` for constraint fixes
+- Added `uuid-ossp` extension creation
+- Added `session_id`, `created_by`, `tab`, `deleted_at` to `conversations` table definition
+- Added 29 missing table definitions (audit_logs, session_permissions, tag_definitions, grace_*, etc.)
+- Conversations table now correctly: `user_id` nullable, `session_id` NOT NULL (session is the permanent anchor)
+
+### Production Deployment
+
+- Northflank combined build+deploy service created (single-stage Dockerfile: Python 3.11-slim + pre-built frontend)
+- `frontend/dist/` force-added to git (was blocked by `.gitignore`)
+- External PostgreSQL access enabled on Northflank addon
+- Data transferred using FK-safe ordered COPY (no superuser needed, no trigger disabling)
+- Verified: 0 column diffs, 0 nullable diffs, all row counts match between local and production
+
+### Files
+| File | Change |
+|------|--------|
+| `backend/db_manager.py` | NEW — schema snapshot/inspect/diff tool |
+| `backend/init_db.py` | 12→41 tables, 50 column migrations, POST_COLUMN_MIGRATION_SQL, conversations.user_id nullable |
+| `backend/schema/snapshot.json` | NEW — first committed schema snapshot (41 tables, 60 functions) |
+
+---
+
 ## 2026-08-01: React Shell + AI Surface — Honest Architecture Refinement
 
 **The code now tells the truth about what it does.** The previous entries claimed "AI is the Architect" and "AI assembles the FULL surface." That was dishonest. The AI fills slots; it does not create or remove slots. This entry documents the correction of misleading claims, the fix of a real bug (empty Figma spec causing 10s timeouts), and the verbose logging discipline for the dev environment.

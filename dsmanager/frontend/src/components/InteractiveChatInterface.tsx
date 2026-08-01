@@ -16,6 +16,7 @@ import { TraceFeed } from './TraceFeed';
 import { neuralNetworkService } from '@/services/neuralNetworkService';
 import { conversationStorage, type Conversation } from '@/services/conversationStorage';
 import { eventBus } from '@/shared/event-bus';
+import { getAuthState } from '@/services/authService';
 
 // Sample approval queue items
 const approvalQueueItems: ApprovalItem[] = [
@@ -176,6 +177,41 @@ ${compiledOutput.slice(0, 3000)}`;
   const [currentGroundingMetrics, setCurrentGroundingMetrics] = useState<GroundingMetrics>(groundingMetricsSample);
   const metricBars = useMemo<MetricBar[]>(() => buildMetricBars(currentGroundingMetrics), [currentGroundingMetrics]);
   const [traceHistoryCollapsed, setTraceHistoryCollapsed] = useState(true);
+
+  // ── ROLE-BASED ACCESS: fetch user's departmental role + capability set ──
+  // Drives which tabs are visible in <chat-navigation-bar> and which
+  // governance views are accessible. Falls back to 'basic' on error.
+  // See frontend/src/shared/role-caps.ts for the persona matrix.
+  const [allowedTabs, setAllowedTabs] = useState<string>('chat,trace,tools');
+  const [userRole, setUserRole] = useState<string>('basic');
+  const [roleCaps, setRoleCaps] = useState<Record<string, any> | null>(null);
+
+  useEffect(() => {
+    const fetchRole = async () => {
+      try {
+        const { userId } = getAuthState();
+        const res = await fetch(`${API_BASE}/ai/role-capabilities`, {
+          headers: { 'X-User-ID': userId || '' },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const caps = data.capabilities || {};
+          setUserRole(data.role || 'basic');
+          setRoleCaps(caps);
+          const tabs = caps.tabs || ['chat'];
+          setAllowedTabs(tabs.join(','));
+          // If the current tab isn't in the allowed list, snap to 'chat'
+          if (!tabs.includes(selectedNav)) {
+            setSelectedNav('chat');
+          }
+        }
+      } catch (e) {
+        // Fall back to dev defaults — don't block rendering
+        console.warn('[RoleCaps] Could not fetch role, using dev defaults', e);
+      }
+    };
+    fetchRole();
+  }, []);
 
   // ── Ref to the Lit <chat-navigation-bar> element ──────────────────────
   const navBarRef = useRef<ChatNavigationBar | null>(null);
@@ -910,6 +946,8 @@ You are in the chat panel. Follow the WORKSPACE USER FLOW above. Use XML tags si
       case 'variables': return { title: 'Execution Trace', subtitle: 'Complete flow from prompt submission to final response — Milvus snapshots', timestamp, tokens: '1,247', cost: '$0.0062', executions: '15' };
       case 'tools': return { title: 'Tool Registry & Usage', subtitle: 'Available functions, API integrations, and execution statistics', timestamp, tokens: '1,247', cost: '$0.0057', executions: '1,847' };
       case 'data': return { title: 'Data Sources & Cross-References', subtitle: 'Connected databases, APIs, and query analytics', timestamp, tokens: '1,103', cost: '$0.0052', executions: '23,323' };
+      case 'evaluation': return { title: 'A/B Testing', subtitle: 'Model comparison, variant testing, and statistical significance', timestamp, tokens: '2,481', cost: '$0.0124', executions: '8' };
+      case 'metadata': return { title: 'Governance & Cost', subtitle: 'Cost per invocation, change history, hallucination rates, audit trail', timestamp, tokens: '—', cost: '$47.82/mo', executions: '3,847' };
       case 'trace':
       default: return { title: 'Chat History', subtitle: 'Conversations, past chats, and new chat', timestamp, tokens: '892', cost: '$0.0041', executions: '47' };
     }
@@ -1047,8 +1085,9 @@ You are in the chat panel. Follow the WORKSPACE USER FLOW above. Use XML tags si
       {/* Lit A2UI chat navigation bar — replaces React SidebarNavigation */}
       <chat-navigation-bar
         ref={navBarRef}
-        active-tab={isRightColumnCollapsed ? '' : (selectedNav === 'trace' || selectedNav === 'tools' ? selectedNav : 'chat')}
+        active-tab={isRightColumnCollapsed ? '' : (selectedNav === 'trace' || selectedNav === 'tools' || selectedNav === 'evaluation' || selectedNav === 'variables' || selectedNav === 'metadata' ? selectedNav : 'chat')}
         collapsed={isRightColumnCollapsed ? 'true' : 'false'}
+        allowed-tabs={allowedTabs}
       >
         <img slot="logo" alt={getImageAlt('card-img-default')} loading="lazy" data-a2ui-id="card-img-default" src={getImageUrl('card-img-default')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </chat-navigation-bar>
@@ -1429,6 +1468,32 @@ You are in the chat panel. Follow the WORKSPACE USER FLOW above. Use XML tags si
                     case 'data': return (
                       <div className="text-[12px] text-gray-400 italic p-4 text-center border border-dashed border-gray-300 rounded-lg">
                         Data view coming soon. Use the Variables tab for variable extraction and the Tools tab for tool definitions.
+                        <div className="h-[230px]" aria-hidden="true"></div>
+                      </div>
+                    );
+                    case 'evaluation': return (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-4">
+                          <h3 className="font-['Inter'] font-bold text-[14px] text-[#1c2f4e] mb-1">A/B Testing & Model Comparison</h3>
+                          <p className="text-[11px] text-gray-500 mb-3">Compare prompt versions across different models and configurations.</p>
+                          <div className="text-[12px] text-gray-400 italic p-3 text-center border border-dashed border-gray-300 rounded-lg">
+                            A/B test runner — design pending.
+                            <br/>Will show: variant comparison, confidence intervals, statistical significance, model performance deltas.
+                          </div>
+                        </div>
+                        <div className="h-[230px]" aria-hidden="true"></div>
+                      </div>
+                    );
+                    case 'metadata': return (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
+                          <h3 className="font-['Inter'] font-bold text-[14px] text-[#1c2f4e] mb-1">Governance & Cost</h3>
+                          <p className="text-[11px] text-gray-500 mb-3">Cost per invocation, change history, hallucination rates, audit trail.</p>
+                          <div className="text-[12px] text-gray-400 italic p-3 text-center border border-dashed border-gray-300 rounded-lg">
+                            Governance dashboard — design pending.
+                            <br/>Will pull from: grace_decisions, grace_health_metrics, usage_metrics, data_dignity_ledger, audit_logs.
+                          </div>
+                        </div>
                         <div className="h-[230px]" aria-hidden="true"></div>
                       </div>
                     );
