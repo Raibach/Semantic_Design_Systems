@@ -1,0 +1,4915 @@
+{
+  "captured_at": "2026-08-01T19:59:38.998683Z",
+  "database_url_safe": "postgresql://localhost:5432/railway",
+  "functions": [
+    {
+      "definition": "pg_armor",
+      "name": "armor",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_armor",
+      "name": "armor",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n  v_value DECIMAL(10,2);\nBEGIN\n  -- Base values (can be adjusted)\n  v_value := CASE p_usage_type\n    WHEN 'training_contribution' THEN 1.00\n    WHEN 'generation_use' THEN 0.10\n    WHEN 'research_citation' THEN 0.50\n    WHEN 'collective_value' THEN 2.00\n    ELSE 0.01\n  END;\n\n  -- Multiply by quality score\n  SELECT v_value * COALESCE(quality_score, 0.5)\n  INTO v_value\n  FROM user_memories\n  WHERE id = p_memory_id;\n\n  RETURN v_value;\nEND;\n",
+      "name": "calculate_dignity_value",
+      "returns": "numeric",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n  v_quarantine_status VARCHAR(20);\n  v_already_promoted BOOLEAN;\nBEGIN\n  SELECT quarantine_status, promoted_to_grace INTO v_quarantine_status, v_already_promoted\n  FROM user_memories\n  WHERE id = p_memory_id AND user_id = p_user_id;\n\n  IF v_already_promoted = TRUE THEN\n    RETURN FALSE; -- Already promoted\n  END IF;\n\n  IF v_quarantine_status IN ('rejected', 'flagged') THEN\n    RETURN FALSE; -- Failed quarantine\n  END IF;\n\n  RETURN TRUE;\nEND;\n",
+      "name": "can_promote_memory",
+      "returns": "boolean",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n  v_plan_limit INTEGER;\n  v_current_usage INTEGER;\nBEGIN\n  SELECT\n    CASE p_metric_type\n      WHEN 'query' THEN sp.queries_per_month\n      WHEN 'pdf_upload' THEN sp.pdf_uploads_per_month\n      ELSE NULL\n    END INTO v_plan_limit\n  FROM user_subscriptions us\n  JOIN subscription_plans sp ON us.plan_id = sp.id\n  WHERE us.user_id = p_user_id AND us.status = 'active';\n\n  IF v_plan_limit IS NULL THEN\n    RETURN TRUE;\n  END IF;\n\n  SELECT COALESCE(SUM(count), 0) INTO v_current_usage\n  FROM usage_metrics\n  WHERE user_id = p_user_id\n    AND metric_type = p_metric_type\n    AND period_month = DATE_TRUNC('month', NOW());\n\n  RETURN v_current_usage < v_plan_limit;\nEND;\n",
+      "name": "check_usage_quota",
+      "returns": "boolean",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n    v_conversation_id UUID;\n    v_session_id UUID;\nBEGIN\n    -- Pre-generate the session UUID so we can satisfy the FK constraint\n    v_session_id := gen_random_uuid();\n\n    -- Step 1: Create the prompt session FIRST (FK target must exist)\n    INSERT INTO prompt_sessions (id, user_id, title, description, metadata)\n    VALUES (\n        v_session_id,\n        p_user_id,\n        p_title,\n        p_description,\n        '{}'::jsonb\n    );\n\n    -- Step 2: Create the conversation with the session_id FK\n    INSERT INTO conversations (session_id, user_id, title, message_count, metadata)\n    VALUES (\n        v_session_id,\n        p_user_id,\n        p_title || ' - Chat',\n        0,\n        jsonb_build_object(\n            'session_type', 'prompt_engineering',\n            'has_prompt_session', true,\n            'prompt_session_id', v_session_id\n        )\n    )\n    RETURNING id INTO v_conversation_id;\n\n    -- Step 3: Link the conversation back to the prompt session\n    UPDATE prompt_sessions\n    SET conversation_id = v_conversation_id,\n        metadata = jsonb_build_object('initial_conversation_id', v_conversation_id)\n    WHERE id = v_session_id;\n\n    RETURN v_session_id;\nEND;\n",
+      "name": "create_prompt_session",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_crypt",
+      "name": "crypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_dearmor",
+      "name": "dearmor",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_decrypt",
+      "name": "decrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_decrypt_iv",
+      "name": "decrypt_iv",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_digest",
+      "name": "digest",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_digest",
+      "name": "digest",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_encrypt",
+      "name": "encrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_encrypt_iv",
+      "name": "encrypt_iv",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_random_bytes",
+      "name": "gen_random_bytes",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_random_uuid",
+      "name": "gen_random_uuid",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_gen_salt",
+      "name": "gen_salt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_gen_salt_rounds",
+      "name": "gen_salt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  RETURN QUERY\n  SELECT\n    mood_state,\n    ghm.hallucination_rate,\n    coherence_score,\n    confidence_avg,\n    refusal_count\n  FROM grace_health_metrics ghm\n  WHERE ghm.user_id = p_user_id\n  ORDER BY metric_period DESC\n  LIMIT 1;\nEND;\n",
+      "name": "get_grace_health",
+      "returns": "record",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n    v_context TEXT := '';\n    v_session_title VARCHAR(255);\n    v_left_column_content TEXT;\n    v_compiled_output TEXT;\n    v_recent_versions TEXT;\n    v_ai_suggestions TEXT;\n    v_conversation_context TEXT;\nBEGIN\n    -- Get session basic info\n    SELECT title, left_column_content, compiled_output\n    INTO v_session_title, v_left_column_content, v_compiled_output\n    FROM prompt_sessions\n    WHERE id = p_session_id;\n\n    -- Build context string\n    v_context := v_context || 'PROMPT SESSION: ' || COALESCE(v_session_title, 'Untitled') || E'\\n\\n';\n\n    -- Add current left column content\n    IF v_left_column_content IS NOT NULL AND v_left_column_content != '' THEN\n        v_context := v_context || 'CURRENT PROMPT WORKSPACE (left column):' || E'\\n';\n        v_context := v_context || v_left_column_content || E'\\n\\n';\n    END IF;\n\n    -- Add compiled output if exists\n    IF v_compiled_output IS NOT NULL AND v_compiled_output != '' THEN\n        v_context := v_context || 'COMPILED PROMPT OUTPUT (third column):' || E'\\n';\n        v_context := v_context || v_compiled_output || E'\\n\\n';\n    END IF;\n\n    -- Get recent versions\n    SELECT string_agg(\n        'Version ' || version_number || ' (' || COALESCE(change_type, 'unknown') || '): ' ||\n        COALESCE(change_description, 'No description') || E'\\n' ||\n        'Content preview: ' || LEFT(COALESCE(left_column_content, ''), 200) || '...',\n        E'\\n---\\n'\n    ) INTO v_recent_versions\n    FROM prompt_versions\n    WHERE session_id = p_session_id\n    ORDER BY version_number DESC\n    LIMIT 3;\n\n    IF v_recent_versions IS NOT NULL THEN\n        v_context := v_context || 'RECENT PROMPT VERSIONS:' || E'\\n';\n        v_context := v_context || v_recent_versions || E'\\n\\n';\n    END IF;\n\n    -- Get unused AI suggestions\n    SELECT string_agg(\n        '[' || COALESCE(suggestion_type, 'unknown') || '] ' || E'\\n' ||\n        COALESCE(content, ''),\n        E'\\n---\\n'\n    ) INTO v_ai_suggestions\n    FROM ai_suggestions\n    WHERE session_id = p_session_id\n    AND used = FALSE\n    ORDER BY created_at DESC\n    LIMIT 5;\n\n    IF v_ai_suggestions IS NOT NULL THEN\n        v_context := v_context || 'AVAILABLE AI SUGGESTIONS (drag-and-drop):' || E'\\n';\n        v_context := v_context || v_ai_suggestions || E'\\n\\n';\n    END IF;\n\n    -- Get recent conversation context\n    SELECT string_agg(\n        '[' || role || ']: ' || content,\n        E'\\n'\n    ) INTO v_conversation_context\n    FROM conversation_messages cm\n    JOIN conversations c ON cm.conversation_id = c.id\n    JOIN prompt_sessions ps ON c.id = ps.conversation_id\n    WHERE ps.id = p_session_id\n    ORDER BY cm.created_at DESC\n    LIMIT 10;\n\n    IF v_conversation_context IS NOT NULL THEN\n        v_context := v_context || 'RECENT CONVERSATION (right column chat):' || E'\\n';\n        v_context := v_context || v_conversation_context || E'\\n\\n';\n    END IF;\n\n    RETURN v_context;\nEND;\n",
+      "name": "get_prompt_context_for_ai",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_hmac",
+      "name": "hmac",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pg_hmac",
+      "name": "hmac",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  RETURN EXISTS (\n    SELECT 1 FROM users \n    WHERE id = p_user_id \n    AND role = 'student' \n    AND deleted_at IS NULL\n  );\nEND;\n",
+      "name": "is_student",
+      "returns": "boolean",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  RETURN EXISTS (\n    SELECT 1 FROM users \n    WHERE id = p_user_id \n    AND role = 'teacher' \n    AND deleted_at IS NULL\n  );\nEND;\n",
+      "name": "is_teacher",
+      "returns": "boolean",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  INSERT INTO memory_provenance (\n    memory_id, user_id, event_type, initiated_by, initiated_by_type, event_metadata\n  ) VALUES (\n    NEW.id, NEW.user_id, 'created', NEW.user_id, 'user',\n    jsonb_build_object(\n      'source_type', NEW.source_type,\n      'content_type', NEW.content_type,\n      'quarantine_status', NEW.quarantine_status\n    )\n  );\n  RETURN NEW;\nEND;\n",
+      "name": "log_memory_creation",
+      "returns": "trigger",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  IF NEW.promoted_to_grace = TRUE AND (OLD.promoted_to_grace IS NULL OR OLD.promoted_to_grace = FALSE) THEN\n    INSERT INTO memory_provenance (\n      memory_id, user_id, event_type, initiated_by, initiated_by_type, event_metadata\n    ) VALUES (\n      NEW.id, NEW.user_id, 'promoted', NEW.promoted_by, 'curator',\n      jsonb_build_object('promoted_at', NEW.promoted_at)\n    );\n  END IF;\n  RETURN NEW;\nEND;\n",
+      "name": "log_memory_promotion",
+      "returns": "trigger",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_armor_headers",
+      "name": "pgp_armor_headers",
+      "returns": "record",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_key_id_w",
+      "name": "pgp_key_id",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_text",
+      "name": "pgp_pub_decrypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_text",
+      "name": "pgp_pub_decrypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_text",
+      "name": "pgp_pub_decrypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_bytea",
+      "name": "pgp_pub_decrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_bytea",
+      "name": "pgp_pub_decrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_decrypt_bytea",
+      "name": "pgp_pub_decrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_encrypt_text",
+      "name": "pgp_pub_encrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_encrypt_text",
+      "name": "pgp_pub_encrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_encrypt_bytea",
+      "name": "pgp_pub_encrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_pub_encrypt_bytea",
+      "name": "pgp_pub_encrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_decrypt_text",
+      "name": "pgp_sym_decrypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_decrypt_text",
+      "name": "pgp_sym_decrypt",
+      "returns": "text",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_decrypt_bytea",
+      "name": "pgp_sym_decrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_decrypt_bytea",
+      "name": "pgp_sym_decrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_encrypt_text",
+      "name": "pgp_sym_encrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_encrypt_text",
+      "name": "pgp_sym_encrypt",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_encrypt_bytea",
+      "name": "pgp_sym_encrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "pgp_sym_encrypt_bytea",
+      "name": "pgp_sym_encrypt_bytea",
+      "returns": "bytea",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n    IF OLD.name = 'Archived Unassigned Chats' THEN\n        RAISE EXCEPTION 'Cannot delete \"Archived Unassigned Chats\". This is a required system project that cannot be removed.';\n    END IF;\n    RETURN OLD;\nEND;\n",
+      "name": "prevent_delete_unassigned_chats",
+      "returns": "trigger",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nDECLARE\n    v_next_version INTEGER;\n    v_session_user_id UUID;\nBEGIN\n    -- Verify session belongs to user\n    SELECT user_id INTO v_session_user_id\n    FROM prompt_sessions\n    WHERE id = p_session_id;\n\n    IF v_session_user_id != p_user_id THEN\n        RAISE EXCEPTION 'User does not own this session';\n    END IF;\n\n    -- Get next version number\n    SELECT COALESCE(MAX(version_number), 0) + 1 INTO v_next_version\n    FROM prompt_versions\n    WHERE session_id = p_session_id;\n\n    -- Create new version\n    INSERT INTO prompt_versions (\n        session_id,\n        version_number,\n        left_column_content,\n        compiled_output,\n        change_description,\n        change_type,\n        created_by_user_id\n    )\n    VALUES (\n        p_session_id,\n        v_next_version,\n        p_left_column_content,\n        p_compiled_output,\n        p_change_description,\n        p_change_type,\n        p_user_id\n    );\n\n    -- Update session's current version and content\n    UPDATE prompt_sessions\n    SET\n        current_version = v_next_version,\n        left_column_content = p_left_column_content,\n        compiled_output = COALESCE(p_compiled_output, compiled_output),\n        updated_at = NOW(),\n        last_accessed_at = NOW()\n    WHERE id = p_session_id;\n\n    RETURN v_next_version;\nEND;\n",
+      "name": "save_prompt_version",
+      "returns": "integer",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  RETURN EXISTS (\n    SELECT 1 FROM teacher_students\n    WHERE teacher_id = p_teacher_id\n    AND student_id = p_student_id\n    AND status = 'active'\n    AND deleted_at IS NULL\n  );\nEND;\n",
+      "name": "teacher_has_student",
+      "returns": "boolean",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "\nBEGIN\n  NEW.updated_at = NOW();\n  RETURN NEW;\nEND;\n",
+      "name": "update_updated_at_column",
+      "returns": "trigger",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_generate_v1",
+      "name": "uuid_generate_v1",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_generate_v1mc",
+      "name": "uuid_generate_v1mc",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_generate_v3",
+      "name": "uuid_generate_v3",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_generate_v4",
+      "name": "uuid_generate_v4",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_generate_v5",
+      "name": "uuid_generate_v5",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_nil",
+      "name": "uuid_nil",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_ns_dns",
+      "name": "uuid_ns_dns",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_ns_oid",
+      "name": "uuid_ns_oid",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_ns_url",
+      "name": "uuid_ns_url",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    },
+    {
+      "definition": "uuid_ns_x500",
+      "name": "uuid_ns_x500",
+      "returns": "uuid",
+      "type": "FUNCTION"
+    }
+  ],
+  "row_counts": {
+    "ai_suggestions": 0,
+    "audit_logs": 195,
+    "categories": 6,
+    "conversation_messages": 46,
+    "conversation_tags": 0,
+    "conversations": 237,
+    "data_dignity_ledger": 0,
+    "figma_specs": 1,
+    "grace_context": 0,
+    "grace_decisions": 0,
+    "grace_health_metrics": 0,
+    "invoices": 0,
+    "memory_provenance": 8,
+    "payment_methods": 0,
+    "projects": 11,
+    "promotion_queue": 0,
+    "prompt_artifacts": 0,
+    "prompt_comments": 0,
+    "prompt_context": 0,
+    "prompt_feedback": 0,
+    "prompt_history": 0,
+    "prompt_permissions": 0,
+    "prompt_ratings": 0,
+    "prompt_sessions": 266,
+    "prompt_shares": 0,
+    "prompt_versions": 4907,
+    "quarantine_items": 0,
+    "session_permissions": 266,
+    "student_grades": 0,
+    "student_profiles": 1,
+    "subscription_plans": 3,
+    "tag_definitions": 485,
+    "tags": 0,
+    "teacher_students": 1,
+    "training_data": 0,
+    "usage_metrics": 0,
+    "user_grace_settings": 3,
+    "user_memories": 8,
+    "user_memory_log": 0,
+    "user_subscriptions": 4,
+    "users": 10
+  },
+  "table_count": 41,
+  "tables": {
+    "ai_suggestions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "session_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "source_message_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "'system'::character varying",
+          "name": "suggestion_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "suggestion_label",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "context",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "generated_by_model",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "false",
+          "name": "used",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "used_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "inserted_position",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "1.0",
+          "name": "confidence_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "1.0",
+          "name": "relevance_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        }
+      ],
+      "constraints": [],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_ai_suggestions_session ON public.ai_suggestions USING btree (session_id)",
+          "name": "idx_ai_suggestions_session"
+        }
+      ]
+    },
+    "audit_logs": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "action",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "resource_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "resource_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "ip_address",
+          "nullable": true,
+          "type": "inet"
+        },
+        {
+          "default": null,
+          "name": "user_agent",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "audit_logs_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id)",
+          "name": "audit_logs_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX audit_logs_pkey ON public.audit_logs USING btree (id)",
+          "name": "audit_logs_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_audit_action ON public.audit_logs USING btree (action, created_at DESC)",
+          "name": "idx_audit_action"
+        },
+        {
+          "definition": "CREATE INDEX idx_audit_user ON public.audit_logs USING btree (user_id, created_at DESC)",
+          "name": "idx_audit_user"
+        }
+      ]
+    },
+    "categories": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "name",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": "'#658D1B'::character varying",
+          "name": "color",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "title_color",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "text_color",
+          "nullable": true,
+          "type": "character varying(20)"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (name)",
+          "name": "categories_name_key",
+          "type": "unique"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "categories_pkey",
+          "type": "primary_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX categories_name_key ON public.categories USING btree (name)",
+          "name": "categories_name_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX categories_pkey ON public.categories USING btree (id)",
+          "name": "categories_pkey"
+        }
+      ]
+    },
+    "conversation_messages": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "created_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "role",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": true,
+          "type": "uuid"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE",
+          "name": "conversation_messages_conversation_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL",
+          "name": "conversation_messages_created_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "conversation_messages_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "conversation_messages_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX conversation_messages_pkey ON public.conversation_messages USING btree (id)",
+          "name": "conversation_messages_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_conv_messages_conv ON public.conversation_messages USING btree (conversation_id, created_at)",
+          "name": "idx_conv_messages_conv"
+        },
+        {
+          "definition": "CREATE INDEX idx_messages_conversation ON public.conversation_messages USING btree (conversation_id, created_at)",
+          "name": "idx_messages_conversation"
+        }
+      ]
+    },
+    "conversation_tags": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "tag_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (conversation_id, tag_id)",
+          "name": "conversation_tags_conversation_id_tag_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "conversation_tags_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (tag_id) REFERENCES tag_definitions(id) ON DELETE CASCADE",
+          "name": "conversation_tags_tag_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX conversation_tags_conversation_id_tag_id_key ON public.conversation_tags USING btree (conversation_id, tag_id)",
+          "name": "conversation_tags_conversation_id_tag_id_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX conversation_tags_pkey ON public.conversation_tags USING btree (id)",
+          "name": "conversation_tags_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversation_tags_conversation ON public.conversation_tags USING btree (conversation_id)",
+          "name": "idx_conversation_tags_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversation_tags_tag ON public.conversation_tags USING btree (tag_id)",
+          "name": "idx_conversation_tags_tag"
+        }
+      ]
+    },
+    "conversations": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "session_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "created_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "title",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "summary",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "0",
+          "name": "message_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": null,
+          "name": "surface_state_json",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "surface_updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "false",
+          "name": "is_archived",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "'chat'::character varying",
+          "name": "tab",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "deleted_at",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "project_id",
+          "nullable": true,
+          "type": "uuid"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL",
+          "name": "conversations_created_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "conversations_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (project_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "conversations_project_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (session_id) REFERENCES prompt_sessions(id) ON DELETE CASCADE",
+          "name": "conversations_session_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "conversations_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX conversations_pkey ON public.conversations USING btree (id)",
+          "name": "conversations_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversations_project ON public.conversations USING btree (project_id)",
+          "name": "idx_conversations_project"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversations_session ON public.conversations USING btree (session_id, updated_at DESC)",
+          "name": "idx_conversations_session"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversations_session_tab ON public.conversations USING btree (session_id, tab, updated_at DESC)",
+          "name": "idx_conversations_session_tab"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversations_tab ON public.conversations USING btree (session_id, tab)",
+          "name": "idx_conversations_tab"
+        },
+        {
+          "definition": "CREATE INDEX idx_conversations_user ON public.conversations USING btree (user_id, updated_at DESC)",
+          "name": "idx_conversations_user"
+        }
+      ]
+    },
+    "data_dignity_ledger": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "memory_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "event_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "value_points",
+          "nullable": false,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "value_usd",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "usage_context",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": "1",
+          "name": "usage_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "beneficiary_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "beneficiary_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "'pending'::character varying",
+          "name": "compensation_status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "paid_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "payment_method",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "payment_reference",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((compensation_status)::text = ANY ((ARRAY['pending'::character varying, 'approved'::character varying, 'paid'::character varying, 'donated'::character varying])::text[])))",
+          "name": "data_dignity_ledger_compensation_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE SET NULL",
+          "name": "data_dignity_ledger_memory_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "data_dignity_ledger_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "data_dignity_ledger_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX data_dignity_ledger_pkey ON public.data_dignity_ledger USING btree (id)",
+          "name": "data_dignity_ledger_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_dignity_memory ON public.data_dignity_ledger USING btree (memory_id) WHERE (memory_id IS NOT NULL)",
+          "name": "idx_dignity_memory"
+        },
+        {
+          "definition": "CREATE INDEX idx_dignity_status ON public.data_dignity_ledger USING btree (compensation_status, created_at DESC)",
+          "name": "idx_dignity_status"
+        },
+        {
+          "definition": "CREATE INDEX idx_dignity_user ON public.data_dignity_ledger USING btree (user_id, created_at DESC)",
+          "name": "idx_dignity_user"
+        }
+      ]
+    },
+    "figma_specs": {
+      "columns": [
+        {
+          "default": null,
+          "name": "file_key",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "node_id",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "name",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "spec",
+          "nullable": false,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "synced_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (file_key, node_id)",
+          "name": "figma_specs_pkey",
+          "type": "primary_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX figma_specs_pkey ON public.figma_specs USING btree (file_key, node_id)",
+          "name": "figma_specs_pkey"
+        }
+      ]
+    },
+    "grace_context": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "memory_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "context_category",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": "50",
+          "name": "priority",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "retrieval_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "last_retrieved_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "1.00",
+          "name": "relevance_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "0",
+          "name": "hallucination_flags",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "negative_feedback_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "true",
+          "name": "is_active",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "deactivated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "deactivation_reason",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE",
+          "name": "grace_context_memory_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "grace_context_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "grace_context_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX grace_context_pkey ON public.grace_context USING btree (id)",
+          "name": "grace_context_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_grace_context_category ON public.grace_context USING btree (user_id, context_category)",
+          "name": "idx_grace_context_category"
+        },
+        {
+          "definition": "CREATE INDEX idx_grace_context_memory ON public.grace_context USING btree (memory_id)",
+          "name": "idx_grace_context_memory"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX idx_grace_context_unique ON public.grace_context USING btree (user_id, memory_id) WHERE (is_active = true)",
+          "name": "idx_grace_context_unique"
+        },
+        {
+          "definition": "CREATE INDEX idx_grace_context_user ON public.grace_context USING btree (user_id, is_active, priority DESC)",
+          "name": "idx_grace_context_user"
+        }
+      ]
+    },
+    "grace_decisions": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "request_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "request_summary",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "request_metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": null,
+          "name": "decision",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "decision_reason",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "confidence_level",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "reasoning_trace",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "related_memory_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "related_context_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "false",
+          "name": "was_overridden",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "overridden_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "override_justification",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((decision)::text = ANY ((ARRAY['accepted'::character varying, 'refused'::character varying, 'deferred'::character varying, 'modified'::character varying])::text[])))",
+          "name": "grace_decisions_decision_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "grace_decisions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (related_context_id) REFERENCES grace_context(id)",
+          "name": "grace_decisions_related_context_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (related_memory_id) REFERENCES user_memories(id)",
+          "name": "grace_decisions_related_memory_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "grace_decisions_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX grace_decisions_pkey ON public.grace_decisions USING btree (id)",
+          "name": "grace_decisions_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_decisions_refused ON public.grace_decisions USING btree (decision, created_at DESC) WHERE ((decision)::text = 'refused'::text)",
+          "name": "idx_decisions_refused"
+        },
+        {
+          "definition": "CREATE INDEX idx_decisions_type ON public.grace_decisions USING btree (decision, request_type)",
+          "name": "idx_decisions_type"
+        },
+        {
+          "definition": "CREATE INDEX idx_decisions_user ON public.grace_decisions USING btree (user_id, created_at DESC)",
+          "name": "idx_decisions_user"
+        }
+      ]
+    },
+    "grace_health_metrics": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "metric_period",
+          "nullable": false,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "response_quality_avg",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "hallucination_rate",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "coherence_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "creativity_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "mood_state",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "confidence_avg",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "uncertainty_rate",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "context_size_mb",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "context_utilization_pct",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "stale_context_pct",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "0",
+          "name": "bad_source_exposure_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "correction_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "positive_feedback_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "refusal_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "grace_health_metrics_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "grace_health_metrics_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX grace_health_metrics_pkey ON public.grace_health_metrics USING btree (id)",
+          "name": "grace_health_metrics_pkey"
+        },
+        {
+          "definition": "CREATE INDEX idx_health_mood ON public.grace_health_metrics USING btree (mood_state, metric_period DESC)",
+          "name": "idx_health_mood"
+        },
+        {
+          "definition": "CREATE INDEX idx_health_user_period ON public.grace_health_metrics USING btree (user_id, metric_period DESC)",
+          "name": "idx_health_user_period"
+        }
+      ]
+    },
+    "invoices": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "subscription_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "stripe_invoice_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "amount_due",
+          "nullable": false,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "amount_paid",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "'USD'::character varying",
+          "name": "currency",
+          "nullable": true,
+          "type": "character varying(3)"
+        },
+        {
+          "default": "'draft'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "invoice_pdf_url",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "due_date",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "paid_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "invoices_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['draft'::character varying, 'open'::character varying, 'paid'::character varying, 'void'::character varying, 'uncollectible'::character varying])::text[])))",
+          "name": "invoices_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "UNIQUE (stripe_invoice_id)",
+          "name": "invoices_stripe_invoice_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "FOREIGN KEY (subscription_id) REFERENCES user_subscriptions(id)",
+          "name": "invoices_subscription_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "invoices_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_invoices_user ON public.invoices USING btree (user_id, created_at DESC)",
+          "name": "idx_invoices_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX invoices_pkey ON public.invoices USING btree (id)",
+          "name": "invoices_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX invoices_stripe_invoice_id_key ON public.invoices USING btree (stripe_invoice_id)",
+          "name": "invoices_stripe_invoice_id_key"
+        }
+      ]
+    },
+    "memory_provenance": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "memory_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "event_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "event_metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": null,
+          "name": "initiated_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "initiated_by_type",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "context_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "context_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "usage_value",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "ip_address",
+          "nullable": true,
+          "type": "inet"
+        },
+        {
+          "default": null,
+          "name": "user_agent",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (initiated_by) REFERENCES users(id)",
+          "name": "memory_provenance_initiated_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "CHECK (((initiated_by_type)::text = ANY ((ARRAY['user'::character varying, 'curator'::character varying, 'system'::character varying, 'grace'::character varying])::text[])))",
+          "name": "memory_provenance_initiated_by_type_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE",
+          "name": "memory_provenance_memory_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "memory_provenance_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "memory_provenance_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_provenance_event ON public.memory_provenance USING btree (event_type, created_at DESC)",
+          "name": "idx_provenance_event"
+        },
+        {
+          "definition": "CREATE INDEX idx_provenance_memory ON public.memory_provenance USING btree (memory_id, created_at DESC)",
+          "name": "idx_provenance_memory"
+        },
+        {
+          "definition": "CREATE INDEX idx_provenance_usage ON public.memory_provenance USING btree (usage_value) WHERE (usage_value > (0)::numeric)",
+          "name": "idx_provenance_usage"
+        },
+        {
+          "definition": "CREATE INDEX idx_provenance_user ON public.memory_provenance USING btree (user_id, created_at DESC)",
+          "name": "idx_provenance_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX memory_provenance_pkey ON public.memory_provenance USING btree (id)",
+          "name": "memory_provenance_pkey"
+        }
+      ]
+    },
+    "payment_methods": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "stripe_payment_method_id",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "brand",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "last4",
+          "nullable": true,
+          "type": "character varying(4)"
+        },
+        {
+          "default": null,
+          "name": "exp_month",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "exp_year",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "false",
+          "name": "is_default",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "payment_methods_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "payment_methods_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX payment_methods_pkey ON public.payment_methods USING btree (id)",
+          "name": "payment_methods_pkey"
+        }
+      ]
+    },
+    "projects": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "name",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "description",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "false",
+          "name": "is_archived",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "projects_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "projects_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_projects_archived ON public.projects USING btree (user_id, is_archived)",
+          "name": "idx_projects_archived"
+        },
+        {
+          "definition": "CREATE INDEX idx_projects_user ON public.projects USING btree (user_id, updated_at DESC)",
+          "name": "idx_projects_user"
+        },
+        {
+          "definition": "CREATE INDEX idx_projects_user_id ON public.projects USING btree (user_id)",
+          "name": "idx_projects_user_id"
+        },
+        {
+          "definition": "CREATE INDEX idx_projects_user_status ON public.projects USING btree (user_id, is_archived)",
+          "name": "idx_projects_user_status"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX idx_unique_default_project ON public.projects USING btree (user_id, name) WHERE (((name)::text = 'Default Project'::text) AND ((is_archived IS NULL) OR (is_archived = false)))",
+          "name": "idx_unique_default_project"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX idx_unique_unassigned_chats ON public.projects USING btree (user_id, name) WHERE (((name)::text = 'Archived Unassigned Chats'::text) AND ((is_archived IS NULL) OR (is_archived = false)))",
+          "name": "idx_unique_unassigned_chats"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)",
+          "name": "projects_pkey"
+        }
+      ]
+    },
+    "promotion_queue": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "memory_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "requested_by",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "request_reason",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'normal'::character varying",
+          "name": "priority_level",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "'pending'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "reviewed_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "reviewed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "reviewer_notes",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "0",
+          "name": "approval_votes",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "0",
+          "name": "rejection_votes",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "automated_quality_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "manual_quality_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE",
+          "name": "promotion_queue_memory_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "promotion_queue_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((priority_level)::text = ANY ((ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying, 'urgent'::character varying])::text[])))",
+          "name": "promotion_queue_priority_level_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (requested_by) REFERENCES users(id)",
+          "name": "promotion_queue_requested_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (reviewed_by) REFERENCES users(id)",
+          "name": "promotion_queue_reviewed_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'in_review'::character varying, 'approved'::character varying, 'rejected'::character varying, 'needs_revision'::character varying])::text[])))",
+          "name": "promotion_queue_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "promotion_queue_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_promotion_memory ON public.promotion_queue USING btree (memory_id)",
+          "name": "idx_promotion_memory"
+        },
+        {
+          "definition": "CREATE INDEX idx_promotion_status ON public.promotion_queue USING btree (status, priority_level, created_at)",
+          "name": "idx_promotion_status"
+        },
+        {
+          "definition": "CREATE INDEX idx_promotion_user ON public.promotion_queue USING btree (user_id, status)",
+          "name": "idx_promotion_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX promotion_queue_pkey ON public.promotion_queue USING btree (id)",
+          "name": "promotion_queue_pkey"
+        }
+      ]
+    },
+    "prompt_artifacts": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "project_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "artifact_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "artifact_data",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_artifacts_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+          "name": "prompt_artifacts_project_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_artifacts_conversation ON public.prompt_artifacts USING btree (conversation_id)",
+          "name": "idx_prompt_artifacts_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_artifacts_project ON public.prompt_artifacts USING btree (project_id)",
+          "name": "idx_prompt_artifacts_project"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_artifacts_pkey ON public.prompt_artifacts USING btree (id)",
+          "name": "prompt_artifacts_pkey"
+        }
+      ]
+    },
+    "prompt_comments": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "parent_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (parent_id) REFERENCES prompt_comments(id) ON DELETE CASCADE",
+          "name": "prompt_comments_parent_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_comments_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_comments_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_comments_conversation ON public.prompt_comments USING btree (conversation_id)",
+          "name": "idx_prompt_comments_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_comments_created ON public.prompt_comments USING btree (created_at DESC)",
+          "name": "idx_prompt_comments_created"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_comments_parent ON public.prompt_comments USING btree (parent_id)",
+          "name": "idx_prompt_comments_parent"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_comments_user ON public.prompt_comments USING btree (user_id)",
+          "name": "idx_prompt_comments_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_comments_pkey ON public.prompt_comments USING btree (id)",
+          "name": "prompt_comments_pkey"
+        }
+      ]
+    },
+    "prompt_context": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "session_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'workspace'::character varying",
+          "name": "context_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "source",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "now()",
+          "name": "captured_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "1.0",
+          "name": "relevance_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_context_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (session_id) REFERENCES prompt_sessions(id) ON DELETE CASCADE",
+          "name": "prompt_context_session_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_context_session ON public.prompt_context USING btree (session_id)",
+          "name": "idx_prompt_context_session"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_context_type ON public.prompt_context USING btree (context_type)",
+          "name": "idx_prompt_context_type"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_context_pkey ON public.prompt_context USING btree (id)",
+          "name": "prompt_context_pkey"
+        }
+      ]
+    },
+    "prompt_feedback": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "feedback_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": "'pending'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "curator_notes",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((feedback_type)::text = ANY ((ARRAY['bug'::character varying, 'improvement'::character varying, 'question'::character varying, 'praise'::character varying, 'other'::character varying])::text[])))",
+          "name": "prompt_feedback_feedback_type_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_feedback_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'approved'::character varying, 'rejected'::character varying, 'resolved'::character varying])::text[])))",
+          "name": "prompt_feedback_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_feedback_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_feedback_conversation ON public.prompt_feedback USING btree (conversation_id)",
+          "name": "idx_prompt_feedback_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_feedback_created ON public.prompt_feedback USING btree (created_at DESC)",
+          "name": "idx_prompt_feedback_created"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_feedback_status ON public.prompt_feedback USING btree (status)",
+          "name": "idx_prompt_feedback_status"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_feedback_user ON public.prompt_feedback USING btree (user_id)",
+          "name": "idx_prompt_feedback_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_feedback_pkey ON public.prompt_feedback USING btree (id)",
+          "name": "prompt_feedback_pkey"
+        }
+      ]
+    },
+    "prompt_history": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "action",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "changes",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "timestamp",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_history_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_history_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_history_conversation ON public.prompt_history USING btree (conversation_id)",
+          "name": "idx_prompt_history_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_history_timestamp ON public.prompt_history USING btree (\"timestamp\" DESC)",
+          "name": "idx_prompt_history_timestamp"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_history_user ON public.prompt_history USING btree (user_id)",
+          "name": "idx_prompt_history_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_history_pkey ON public.prompt_history USING btree (id)",
+          "name": "prompt_history_pkey"
+        }
+      ]
+    },
+    "prompt_permissions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "permission",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "granted_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (conversation_id, user_id)",
+          "name": "prompt_permissions_conversation_id_user_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL",
+          "name": "prompt_permissions_granted_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "CHECK (((permission)::text = ANY ((ARRAY['read'::character varying, 'write'::character varying, 'admin'::character varying])::text[])))",
+          "name": "prompt_permissions_permission_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_permissions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_permissions_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_permissions_conversation ON public.prompt_permissions USING btree (conversation_id)",
+          "name": "idx_prompt_permissions_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_permissions_user ON public.prompt_permissions USING btree (user_id)",
+          "name": "idx_prompt_permissions_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_permissions_conversation_id_user_id_key ON public.prompt_permissions USING btree (conversation_id, user_id)",
+          "name": "prompt_permissions_conversation_id_user_id_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_permissions_pkey ON public.prompt_permissions USING btree (id)",
+          "name": "prompt_permissions_pkey"
+        }
+      ]
+    },
+    "prompt_ratings": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "rating",
+          "nullable": false,
+          "type": "integer"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (conversation_id, user_id)",
+          "name": "prompt_ratings_conversation_id_user_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_ratings_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((rating >= 1) AND (rating <= 5)))",
+          "name": "prompt_ratings_rating_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_ratings_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_ratings_conversation ON public.prompt_ratings USING btree (conversation_id)",
+          "name": "idx_prompt_ratings_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_ratings_rating ON public.prompt_ratings USING btree (rating)",
+          "name": "idx_prompt_ratings_rating"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_ratings_user ON public.prompt_ratings USING btree (user_id)",
+          "name": "idx_prompt_ratings_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_ratings_conversation_id_user_id_key ON public.prompt_ratings USING btree (conversation_id, user_id)",
+          "name": "prompt_ratings_conversation_id_user_id_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_ratings_pkey ON public.prompt_ratings USING btree (id)",
+          "name": "prompt_ratings_pkey"
+        }
+      ]
+    },
+    "prompt_sessions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'Untitled'::character varying",
+          "name": "title",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "''::text",
+          "name": "description",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "''::text",
+          "name": "left_column_content",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "''::text",
+          "name": "compiled_output",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "true",
+          "name": "is_active",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "false",
+          "name": "is_archived",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "1",
+          "name": "current_version",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "last_accessed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "category",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "project_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "'Active'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "0",
+          "name": "likes",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "model_name",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "team_name",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "avatar_url",
+          "nullable": true,
+          "type": "text"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL",
+          "name": "prompt_sessions_conversation_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_sessions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+          "name": "prompt_sessions_project_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_sessions_category ON public.prompt_sessions USING btree (category)",
+          "name": "idx_prompt_sessions_category"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_sessions_user ON public.prompt_sessions USING btree (user_id)",
+          "name": "idx_prompt_sessions_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_sessions_pkey ON public.prompt_sessions USING btree (id)",
+          "name": "prompt_sessions_pkey"
+        }
+      ]
+    },
+    "prompt_shares": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "shared_by",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "shared_with",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'read'::character varying",
+          "name": "permission_level",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (conversation_id, shared_with)",
+          "name": "prompt_shares_conversation_id_shared_with_key",
+          "type": "unique"
+        },
+        {
+          "definition": "CHECK (((permission_level)::text = ANY ((ARRAY['read'::character varying, 'write'::character varying, 'admin'::character varying])::text[])))",
+          "name": "prompt_shares_permission_level_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_shares_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (shared_by) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_shares_shared_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (shared_with) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "prompt_shares_shared_with_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_shares_conversation ON public.prompt_shares USING btree (conversation_id)",
+          "name": "idx_prompt_shares_conversation"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_shares_shared_by ON public.prompt_shares USING btree (shared_by)",
+          "name": "idx_prompt_shares_shared_by"
+        },
+        {
+          "definition": "CREATE INDEX idx_prompt_shares_shared_with ON public.prompt_shares USING btree (shared_with)",
+          "name": "idx_prompt_shares_shared_with"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_shares_conversation_id_shared_with_key ON public.prompt_shares USING btree (conversation_id, shared_with)",
+          "name": "prompt_shares_conversation_id_shared_with_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_shares_pkey ON public.prompt_shares USING btree (id)",
+          "name": "prompt_shares_pkey"
+        }
+      ]
+    },
+    "prompt_versions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "session_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "version_number",
+          "nullable": false,
+          "type": "integer"
+        },
+        {
+          "default": "''::text",
+          "name": "left_column_content",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "''::text",
+          "name": "compiled_output",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "''::text",
+          "name": "change_description",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'manual'::character varying",
+          "name": "change_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "created_by_user_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "overall_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "score_breakdown",
+          "nullable": true,
+          "type": "jsonb"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "prompt_versions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (session_id) REFERENCES prompt_sessions(id) ON DELETE CASCADE",
+          "name": "prompt_versions_session_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "UNIQUE (session_id, version_number)",
+          "name": "prompt_versions_session_id_version_number_key",
+          "type": "unique"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_prompt_versions_session ON public.prompt_versions USING btree (session_id, version_number)",
+          "name": "idx_prompt_versions_session"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_versions_pkey ON public.prompt_versions USING btree (id)",
+          "name": "prompt_versions_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX prompt_versions_session_id_version_number_key ON public.prompt_versions USING btree (session_id, version_number)",
+          "name": "prompt_versions_session_id_version_number_key"
+        }
+      ]
+    },
+    "quarantine_items": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "source_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "source_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "url",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "title",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "content_preview",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "threat_level",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "threat_category",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "threat_details",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "'pending_review'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "reviewed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "reviewer_notes",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "quarantine_items_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['pending_review'::character varying, 'approved'::character varying, 'rejected'::character varying, 'quarantined'::character varying])::text[])))",
+          "name": "quarantine_items_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "CHECK (((threat_level)::text = ANY ((ARRAY['CRITICAL'::character varying, 'HIGH'::character varying, 'MODERATE'::character varying, 'SAFE'::character varying])::text[])))",
+          "name": "quarantine_items_threat_level_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "quarantine_items_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_quarantine_source ON public.quarantine_items USING btree (source_id, source_type)",
+          "name": "idx_quarantine_source"
+        },
+        {
+          "definition": "CREATE INDEX idx_quarantine_threat_level ON public.quarantine_items USING btree (threat_level, created_at DESC)",
+          "name": "idx_quarantine_threat_level"
+        },
+        {
+          "definition": "CREATE INDEX idx_quarantine_user ON public.quarantine_items USING btree (user_id, status)",
+          "name": "idx_quarantine_user"
+        },
+        {
+          "definition": "CREATE INDEX idx_quarantine_user_status ON public.quarantine_items USING btree (user_id, status, created_at DESC)",
+          "name": "idx_quarantine_user_status"
+        },
+        {
+          "definition": "CREATE INDEX idx_quarantine_user_threat ON public.quarantine_items USING btree (user_id, threat_level, created_at DESC)",
+          "name": "idx_quarantine_user_threat"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX quarantine_items_pkey ON public.quarantine_items USING btree (id)",
+          "name": "quarantine_items_pkey"
+        }
+      ]
+    },
+    "session_permissions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "session_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'owner'::character varying",
+          "name": "role",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "granted_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL",
+          "name": "session_permissions_granted_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "session_permissions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (session_id) REFERENCES prompt_sessions(id) ON DELETE CASCADE",
+          "name": "session_permissions_session_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "UNIQUE (session_id, user_id)",
+          "name": "session_permissions_session_id_user_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "session_permissions_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX session_permissions_pkey ON public.session_permissions USING btree (id)",
+          "name": "session_permissions_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX session_permissions_session_id_user_id_key ON public.session_permissions USING btree (session_id, user_id)",
+          "name": "session_permissions_session_id_user_id_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX session_permissions_session_user_uidx ON public.session_permissions USING btree (session_id, user_id)",
+          "name": "session_permissions_session_user_uidx"
+        }
+      ]
+    },
+    "student_grades": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "teacher_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "student_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "assignment_name",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'general'::character varying",
+          "name": "assignment_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "grade",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "max_points",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "letter_grade",
+          "nullable": true,
+          "type": "character varying(5)"
+        },
+        {
+          "default": null,
+          "name": "feedback",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "rubric_data",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": null,
+          "name": "due_date",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "submitted_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "graded_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "'graded'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "deleted_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((assignment_type)::text = ANY ((ARRAY['essay'::character varying, 'project'::character varying, 'quiz'::character varying, 'participation'::character varying, 'general'::character varying])::text[])))",
+          "name": "student_grades_assignment_type_check",
+          "type": "check"
+        },
+        {
+          "definition": "CHECK (((grade >= (0)::numeric) AND (grade <= (100)::numeric)))",
+          "name": "student_grades_grade_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "student_grades_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'submitted'::character varying, 'graded'::character varying, 'returned'::character varying])::text[])))",
+          "name": "student_grades_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "student_grades_student_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "student_grades_teacher_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_grades_assignment ON public.student_grades USING btree (assignment_name, assignment_type) WHERE (deleted_at IS NULL)",
+          "name": "idx_grades_assignment"
+        },
+        {
+          "definition": "CREATE INDEX idx_grades_student ON public.student_grades USING btree (student_id, created_at DESC) WHERE (deleted_at IS NULL)",
+          "name": "idx_grades_student"
+        },
+        {
+          "definition": "CREATE INDEX idx_grades_teacher ON public.student_grades USING btree (teacher_id, created_at DESC) WHERE (deleted_at IS NULL)",
+          "name": "idx_grades_teacher"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX student_grades_pkey ON public.student_grades USING btree (id)",
+          "name": "student_grades_pkey"
+        }
+      ]
+    },
+    "student_profiles": {
+      "columns": [
+        {
+          "default": null,
+          "name": "student_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "student_number",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "now()",
+          "name": "enrollment_date",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "graduation_date",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "gpa",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "0",
+          "name": "total_credits",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "academic_level",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "parent_email",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "parent_phone",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "emergency_contact_name",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "emergency_contact_phone",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "notes",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((academic_level)::text = ANY ((ARRAY['freshman'::character varying, 'sophomore'::character varying, 'junior'::character varying, 'senior'::character varying, 'graduate'::character varying, 'other'::character varying])::text[])))",
+          "name": "student_profiles_academic_level_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (student_id)",
+          "name": "student_profiles_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "student_profiles_student_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "UNIQUE (student_number)",
+          "name": "student_profiles_student_number_key",
+          "type": "unique"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_student_profiles_student_number ON public.student_profiles USING btree (student_number) WHERE (student_number IS NOT NULL)",
+          "name": "idx_student_profiles_student_number"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX student_profiles_pkey ON public.student_profiles USING btree (student_id)",
+          "name": "student_profiles_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX student_profiles_student_number_key ON public.student_profiles USING btree (student_number)",
+          "name": "student_profiles_student_number_key"
+        }
+      ]
+    },
+    "subscription_plans": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "name",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "slug",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "description",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "price_monthly",
+          "nullable": false,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "price_yearly",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "stripe_price_id_monthly",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "stripe_price_id_yearly",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "queries_per_month",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "pdf_uploads_per_month",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "memory_storage_mb",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "10",
+          "name": "max_file_size_mb",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "features",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "true",
+          "name": "is_active",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "0",
+          "name": "sort_order",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "subscription_plans_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "UNIQUE (slug)",
+          "name": "subscription_plans_slug_key",
+          "type": "unique"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX subscription_plans_pkey ON public.subscription_plans USING btree (id)",
+          "name": "subscription_plans_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX subscription_plans_slug_key ON public.subscription_plans USING btree (slug)",
+          "name": "subscription_plans_slug_key"
+        }
+      ]
+    },
+    "tag_definitions": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "tag_name",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "tag_level",
+          "nullable": false,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "parent_tag_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "tag_path",
+          "nullable": false,
+          "type": "character varying(500)"
+        },
+        {
+          "default": null,
+          "name": "description",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "FOREIGN KEY (parent_tag_id) REFERENCES tag_definitions(id) ON DELETE CASCADE",
+          "name": "tag_definitions_parent_tag_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "tag_definitions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((tag_level >= 1) AND (tag_level <= 4)))",
+          "name": "tag_definitions_tag_level_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL",
+          "name": "tag_definitions_user_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "UNIQUE (user_id, tag_path)",
+          "name": "tag_definitions_user_id_tag_path_key",
+          "type": "unique"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_tag_definitions_parent ON public.tag_definitions USING btree (parent_tag_id)",
+          "name": "idx_tag_definitions_parent"
+        },
+        {
+          "definition": "CREATE INDEX idx_tag_definitions_path ON public.tag_definitions USING btree (tag_path)",
+          "name": "idx_tag_definitions_path"
+        },
+        {
+          "definition": "CREATE INDEX idx_tag_definitions_user ON public.tag_definitions USING btree (user_id)",
+          "name": "idx_tag_definitions_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX tag_definitions_pkey ON public.tag_definitions USING btree (id)",
+          "name": "tag_definitions_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX tag_definitions_user_id_tag_path_key ON public.tag_definitions USING btree (user_id, tag_path)",
+          "name": "tag_definitions_user_id_tag_path_key"
+        }
+      ]
+    },
+    "tags": {
+      "columns": [
+        {
+          "default": "gen_random_uuid()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "name",
+          "nullable": false,
+          "type": "character varying(100)"
+        },
+        {
+          "default": null,
+          "name": "color",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "tags_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "tags_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_tags_user ON public.tags USING btree (user_id)",
+          "name": "idx_tags_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX tags_pkey ON public.tags USING btree (id)",
+          "name": "tags_pkey"
+        }
+      ]
+    },
+    "teacher_students": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "teacher_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "student_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'active'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "now()",
+          "name": "enrollment_date",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "notes",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "deleted_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "teacher_students_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'inactive'::character varying, 'suspended'::character varying])::text[])))",
+          "name": "teacher_students_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "teacher_students_student_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "teacher_students_teacher_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "UNIQUE (teacher_id, student_id)",
+          "name": "teacher_students_teacher_id_student_id_key",
+          "type": "unique"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_teacher_students_student ON public.teacher_students USING btree (student_id, status) WHERE (deleted_at IS NULL)",
+          "name": "idx_teacher_students_student"
+        },
+        {
+          "definition": "CREATE INDEX idx_teacher_students_teacher ON public.teacher_students USING btree (teacher_id, status) WHERE (deleted_at IS NULL)",
+          "name": "idx_teacher_students_teacher"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX teacher_students_pkey ON public.teacher_students USING btree (id)",
+          "name": "teacher_students_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX teacher_students_teacher_id_student_id_key ON public.teacher_students USING btree (teacher_id, student_id)",
+          "name": "teacher_students_teacher_id_student_id_key"
+        }
+      ]
+    },
+    "training_data": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "question",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "answer",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "reasoning_trace",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "confidence_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "quality_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "source_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "training_data_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "training_data_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_training_user ON public.training_data USING btree (user_id, quality_score DESC)",
+          "name": "idx_training_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX training_data_pkey ON public.training_data USING btree (id)",
+          "name": "training_data_pkey"
+        }
+      ]
+    },
+    "usage_metrics": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "metric_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "1",
+          "name": "count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "period_month",
+          "nullable": false,
+          "type": "date"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "usage_metrics_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "usage_metrics_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_usage_user_period ON public.usage_metrics USING btree (user_id, period_month, metric_type)",
+          "name": "idx_usage_user_period"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX usage_metrics_pkey ON public.usage_metrics USING btree (id)",
+          "name": "usage_metrics_pkey"
+        }
+      ]
+    },
+    "user_grace_settings": {
+      "columns": [
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "0.45",
+          "name": "temperature",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "'chain_of_thought'::character varying",
+          "name": "reasoning_style",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "true",
+          "name": "self_reflection",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "false",
+          "name": "second_order_reasoning",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "true",
+          "name": "memory_integration",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "'balanced'::character varying",
+          "name": "training_mode",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "'medium'::character varying",
+          "name": "confidence_threshold",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": "'{\"writingStyle\": true, \"topicKnowledge\": true, \"errorCorrections\": true, \"feedbackPatterns\": true}'::jsonb",
+          "name": "learning_focus",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "true",
+          "name": "auto_qna",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": "'{\"stance\": \"collaborative\", \"enabled\": true, \"askObjectiveFirst\": true, \"structuralCritique\": false, \"detectChatGPTPatterns\": true, \"voicePreservationPriority\": \"high\"}'::jsonb",
+          "name": "editorial",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (user_id)",
+          "name": "user_grace_settings_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE",
+          "name": "user_grace_settings_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE UNIQUE INDEX user_grace_settings_pkey ON public.user_grace_settings USING btree (user_id)",
+          "name": "user_grace_settings_pkey"
+        }
+      ]
+    },
+    "user_memories": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "content",
+          "nullable": false,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "content_hash",
+          "nullable": false,
+          "type": "character varying(64)"
+        },
+        {
+          "default": null,
+          "name": "content_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "title",
+          "nullable": true,
+          "type": "character varying(500)"
+        },
+        {
+          "default": null,
+          "name": "source_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "source_url",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "source_metadata",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": "'pending'::character varying",
+          "name": "quarantine_status",
+          "nullable": false,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "quarantine_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "'{}'::jsonb",
+          "name": "quarantine_details",
+          "nullable": true,
+          "type": "jsonb"
+        },
+        {
+          "default": null,
+          "name": "quarantine_reviewed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "vector_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'sentence-transformers/all-MiniLM-L6-v2'::character varying",
+          "name": "embedding_model",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": "0.5",
+          "name": "importance_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": null,
+          "name": "quality_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "0",
+          "name": "view_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "last_viewed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "false",
+          "name": "promoted_to_grace",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "promoted_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "promoted_by",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "false",
+          "name": "is_archived",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "archived_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "project_id",
+          "nullable": true,
+          "type": "uuid"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "user_memories_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL",
+          "name": "user_memories_project_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "FOREIGN KEY (promoted_by) REFERENCES users(id)",
+          "name": "user_memories_promoted_by_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "CHECK (((quarantine_status)::text = ANY ((ARRAY['pending'::character varying, 'safe'::character varying, 'uncertain'::character varying, 'flagged'::character varying, 'rejected'::character varying])::text[])))",
+          "name": "user_memories_quarantine_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "user_memories_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_memories_hash ON public.user_memories USING btree (user_id, content_hash)",
+          "name": "idx_memories_hash"
+        },
+        {
+          "definition": "CREATE INDEX idx_memories_project ON public.user_memories USING btree (project_id) WHERE (project_id IS NOT NULL)",
+          "name": "idx_memories_project"
+        },
+        {
+          "definition": "CREATE INDEX idx_memories_promoted ON public.user_memories USING btree (promoted_to_grace, promoted_at DESC)",
+          "name": "idx_memories_promoted"
+        },
+        {
+          "definition": "CREATE INDEX idx_memories_quarantine ON public.user_memories USING btree (user_id, quarantine_status)",
+          "name": "idx_memories_quarantine"
+        },
+        {
+          "definition": "CREATE INDEX idx_memories_user ON public.user_memories USING btree (user_id, created_at DESC)",
+          "name": "idx_memories_user"
+        },
+        {
+          "definition": "CREATE INDEX idx_memories_vector ON public.user_memories USING btree (vector_id) WHERE (vector_id IS NOT NULL)",
+          "name": "idx_memories_vector"
+        },
+        {
+          "definition": "CREATE INDEX idx_user_memories_user ON public.user_memories USING btree (user_id, created_at DESC)",
+          "name": "idx_user_memories_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX user_memories_pkey ON public.user_memories USING btree (id)",
+          "name": "user_memories_pkey"
+        }
+      ]
+    },
+    "user_memory_log": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "qdrant_point_id",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "qdrant_collection",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "content_preview",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "content_hash",
+          "nullable": true,
+          "type": "character varying(64)"
+        },
+        {
+          "default": null,
+          "name": "source_type",
+          "nullable": false,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "source_id",
+          "nullable": true,
+          "type": "uuid"
+        },
+        {
+          "default": "0.5",
+          "name": "importance_score",
+          "nullable": true,
+          "type": "numeric"
+        },
+        {
+          "default": "0",
+          "name": "access_count",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "last_accessed_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "false",
+          "name": "is_archived",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "archived_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "archive_location",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "milvus_point_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "milvus_collection",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'bge-small-en-v1'::character varying",
+          "name": "embedding_model_version",
+          "nullable": true,
+          "type": "character varying(100)"
+        },
+        {
+          "default": "'general'::character varying",
+          "name": "context_type",
+          "nullable": true,
+          "type": "character varying(50)"
+        },
+        {
+          "default": null,
+          "name": "chunk_index",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": "1",
+          "name": "total_chunks",
+          "nullable": true,
+          "type": "integer"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "user_memory_log_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "user_memory_log_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_memory_context_type ON public.user_memory_log USING btree (user_id, context_type) WHERE (context_type IS NOT NULL)",
+          "name": "idx_memory_context_type"
+        },
+        {
+          "definition": "CREATE INDEX idx_memory_embedding_model ON public.user_memory_log USING btree (embedding_model_version)",
+          "name": "idx_memory_embedding_model"
+        },
+        {
+          "definition": "CREATE INDEX idx_memory_hash ON public.user_memory_log USING btree (user_id, content_hash)",
+          "name": "idx_memory_hash"
+        },
+        {
+          "definition": "CREATE INDEX idx_memory_milvus_collection ON public.user_memory_log USING btree (milvus_collection) WHERE (milvus_collection IS NOT NULL)",
+          "name": "idx_memory_milvus_collection"
+        },
+        {
+          "definition": "CREATE INDEX idx_memory_milvus_point ON public.user_memory_log USING btree (milvus_point_id) WHERE (milvus_point_id IS NOT NULL)",
+          "name": "idx_memory_milvus_point"
+        },
+        {
+          "definition": "CREATE INDEX idx_memory_user ON public.user_memory_log USING btree (user_id, created_at DESC)",
+          "name": "idx_memory_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX user_memory_log_pkey ON public.user_memory_log USING btree (id)",
+          "name": "user_memory_log_pkey"
+        }
+      ]
+    },
+    "user_subscriptions": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "user_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "plan_id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": "'active'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "'monthly'::character varying",
+          "name": "billing_cycle",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": null,
+          "name": "current_period_start",
+          "nullable": false,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "current_period_end",
+          "nullable": false,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "trial_end",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "false",
+          "name": "cancel_at_period_end",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "canceled_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "cancellation_reason",
+          "nullable": true,
+          "type": "text"
+        },
+        {
+          "default": null,
+          "name": "stripe_customer_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "stripe_subscription_id",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "CHECK (((billing_cycle)::text = ANY ((ARRAY['monthly'::character varying, 'yearly'::character varying])::text[])))",
+          "name": "user_subscriptions_billing_cycle_check",
+          "type": "check"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "user_subscriptions_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "FOREIGN KEY (plan_id) REFERENCES subscription_plans(id)",
+          "name": "user_subscriptions_plan_id_fkey",
+          "type": "foreign_key"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'trialing'::character varying, 'past_due'::character varying, 'canceled'::character varying, 'paused'::character varying])::text[])))",
+          "name": "user_subscriptions_status_check",
+          "type": "check"
+        },
+        {
+          "definition": "UNIQUE (stripe_subscription_id)",
+          "name": "user_subscriptions_stripe_subscription_id_key",
+          "type": "unique"
+        },
+        {
+          "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "name": "user_subscriptions_user_id_fkey",
+          "type": "foreign_key"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_subscriptions_status ON public.user_subscriptions USING btree (status)",
+          "name": "idx_subscriptions_status"
+        },
+        {
+          "definition": "CREATE INDEX idx_subscriptions_user ON public.user_subscriptions USING btree (user_id)",
+          "name": "idx_subscriptions_user"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX user_subscriptions_pkey ON public.user_subscriptions USING btree (id)",
+          "name": "user_subscriptions_pkey"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX user_subscriptions_stripe_subscription_id_key ON public.user_subscriptions USING btree (stripe_subscription_id)",
+          "name": "user_subscriptions_stripe_subscription_id_key"
+        }
+      ]
+    },
+    "users": {
+      "columns": [
+        {
+          "default": "uuid_generate_v4()",
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "default": null,
+          "name": "email",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "password_hash",
+          "nullable": false,
+          "type": "character varying(255)"
+        },
+        {
+          "default": null,
+          "name": "full_name",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "'active'::character varying",
+          "name": "status",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "false",
+          "name": "email_verified",
+          "nullable": true,
+          "type": "boolean"
+        },
+        {
+          "default": null,
+          "name": "email_verification_token",
+          "nullable": true,
+          "type": "character varying(255)"
+        },
+        {
+          "default": "0",
+          "name": "failed_login_attempts",
+          "nullable": true,
+          "type": "integer"
+        },
+        {
+          "default": null,
+          "name": "locked_until",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "last_login_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "last_login_ip",
+          "nullable": true,
+          "type": "inet"
+        },
+        {
+          "default": "now()",
+          "name": "created_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": null,
+          "name": "deleted_at",
+          "nullable": true,
+          "type": "timestamp without time zone"
+        },
+        {
+          "default": "'student'::character varying",
+          "name": "role",
+          "nullable": true,
+          "type": "character varying(20)"
+        },
+        {
+          "default": "'viewer'::character varying",
+          "name": "prompt_role",
+          "nullable": true,
+          "type": "character varying(20)"
+        }
+      ],
+      "constraints": [
+        {
+          "definition": "UNIQUE (email)",
+          "name": "users_email_key",
+          "type": "unique"
+        },
+        {
+          "definition": "PRIMARY KEY (id)",
+          "name": "users_pkey",
+          "type": "primary_key"
+        },
+        {
+          "definition": "CHECK (((prompt_role)::text = ANY ((ARRAY['contributor'::character varying, 'curator'::character varying, 'viewer'::character varying, 'admin'::character varying])::text[])))",
+          "name": "users_prompt_role_check",
+          "type": "check"
+        },
+        {
+          "definition": "CHECK (((role)::text = ANY ((ARRAY['teacher'::character varying, 'student'::character varying, 'admin'::character varying])::text[])))",
+          "name": "users_role_check",
+          "type": "check"
+        },
+        {
+          "definition": "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'suspended'::character varying, 'deleted'::character varying])::text[])))",
+          "name": "users_status_check",
+          "type": "check"
+        }
+      ],
+      "indexes": [
+        {
+          "definition": "CREATE INDEX idx_users_email ON public.users USING btree (email) WHERE (deleted_at IS NULL)",
+          "name": "idx_users_email"
+        },
+        {
+          "definition": "CREATE INDEX idx_users_role ON public.users USING btree (role) WHERE (deleted_at IS NULL)",
+          "name": "idx_users_role"
+        },
+        {
+          "definition": "CREATE INDEX idx_users_status ON public.users USING btree (status)",
+          "name": "idx_users_status"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)",
+          "name": "users_email_key"
+        },
+        {
+          "definition": "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+          "name": "users_pkey"
+        }
+      ]
+    }
+  }
+}
