@@ -43,7 +43,9 @@ TABLE_DEFINITIONS = {
     'conversations': """
         CREATE TABLE IF NOT EXISTS conversations (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            session_id UUID NOT NULL,
+            created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+            user_id UUID REFERENCES users(id) ON DELETE SET NULL,
             project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
             title VARCHAR(255),
             summary TEXT,
@@ -52,6 +54,8 @@ TABLE_DEFINITIONS = {
             surface_state_json TEXT,
             surface_updated_at TIMESTAMP,
             is_archived BOOLEAN DEFAULT FALSE,
+            tab VARCHAR(20) DEFAULT 'chat',
+            deleted_at TEXT,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         )
@@ -60,7 +64,8 @@ TABLE_DEFINITIONS = {
         CREATE TABLE IF NOT EXISTS conversation_messages (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+            created_by UUID REFERENCES users(id) ON DELETE SET NULL,
             role VARCHAR(20) NOT NULL,
             content TEXT NOT NULL,
             metadata JSONB DEFAULT '{}',
@@ -641,12 +646,19 @@ TABLE_DEFINITIONS = {
 
 # Safe column migrations - adds column if missing, never drops
 COLUMN_MIGRATIONS = [
-    # conversations table
+    # conversations table — session_id is the anchor, user_id is transient
+    # (sessions can be transferred/shared; user_id changes, session_id never does)
     ("conversations", "session_id", "UUID NOT NULL DEFAULT gen_random_uuid()"),
     ("conversations", "created_by", "UUID"),
+    ("conversations", "user_id", "UUID"),  # nullable — sessions can be ported between users
+    ("conversations", "tab", "VARCHAR(20) DEFAULT 'chat'"),
+    ("conversations", "deleted_at", "TEXT"),
     ("conversations", "surface_state_json", "TEXT"),
     ("conversations", "surface_updated_at", "TIMESTAMP"),
     ("conversations", "is_archived", "BOOLEAN DEFAULT FALSE"),
+    # conversation_messages — same principle: user_id is transient
+    ("conversation_messages", "user_id", "UUID"),  # nullable
+    ("conversation_messages", "created_by", "UUID"),
     # projects table
     ("projects", "is_archived", "BOOLEAN DEFAULT FALSE"),
     # prompt_sessions table
@@ -668,6 +680,41 @@ COLUMN_MIGRATIONS = [
     ("ai_suggestions", "used_at", "TIMESTAMP"),
     ("ai_suggestions", "inserted_position", "INTEGER"),
     ("ai_suggestions", "content", "TEXT"),
+    ("ai_suggestions", "source_message_id", "UUID"),
+    ("ai_suggestions", "suggestion_label", "VARCHAR(255)"),
+    ("ai_suggestions", "context", "TEXT"),
+    ("ai_suggestions", "generated_by_model", "VARCHAR(255)"),
+    ("ai_suggestions", "confidence_score", "NUMERIC DEFAULT 1.0"),
+    ("ai_suggestions", "relevance_score", "NUMERIC DEFAULT 1.0"),
+    ("ai_suggestions", "updated_at", "TIMESTAMP DEFAULT NOW()"),
+    # users table
+    ("users", "role", "VARCHAR(20) DEFAULT 'student'"),
+    ("users", "prompt_role", "VARCHAR(20) DEFAULT 'viewer'"),
+    # user_memories table
+    ("user_memories", "title", "VARCHAR(500)"),
+    ("user_memories", "source_url", "TEXT"),
+    ("user_memories", "source_metadata", "JSONB DEFAULT '{}'"),
+    ("user_memories", "quarantine_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+    ("user_memories", "quarantine_score", "NUMERIC"),
+    ("user_memories", "quarantine_details", "JSONB DEFAULT '{}'"),
+    ("user_memories", "quarantine_reviewed_at", "TIMESTAMP"),
+    ("user_memories", "vector_id", "VARCHAR(255)"),
+    ("user_memories", "embedding_model", "VARCHAR(100) DEFAULT 'sentence-transformers/all-MiniLM-L6-v2'"),
+    ("user_memories", "quality_score", "NUMERIC"),
+    ("user_memories", "view_count", "INTEGER DEFAULT 0"),
+    ("user_memories", "last_viewed_at", "TIMESTAMP"),
+    ("user_memories", "promoted_to_grace", "BOOLEAN DEFAULT FALSE"),
+    ("user_memories", "promoted_at", "TIMESTAMP"),
+    ("user_memories", "promoted_by", "UUID"),
+    ("user_memories", "project_id", "UUID"),
+]
+
+# SQL to run after column migrations — fixes NOT NULL constraints that should be nullable
+# Conversations belong to sessions, not users. user_id must be nullable so sessions
+# can be transferred/shared between users without breaking the conversation.
+POST_COLUMN_MIGRATION_SQL = [
+    "ALTER TABLE public.conversations ALTER COLUMN user_id DROP NOT NULL",
+    "ALTER TABLE public.conversation_messages ALTER COLUMN user_id DROP NOT NULL",
 ]
 
 # Indexes to create if they don't exist
@@ -995,6 +1042,17 @@ def init_database():
                     cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
                 except Exception as e:
                     print(f"  Warning: Could not add {table_name}.{column_name}: {e}")
+
+        # Step 2b: Fix NOT NULL constraints that should be nullable
+        # Conversations belong to sessions, not users. user_id must be nullable
+        # so sessions can be transferred/shared between users.
+        print("Applying constraint fixes...")
+        for sql in POST_COLUMN_MIGRATION_SQL:
+            try:
+                cur.execute(sql)
+            except Exception as e:
+                # Column might already be nullable
+                pass
 
         # Step 3: Create indexes
         print("Creating indexes...")
