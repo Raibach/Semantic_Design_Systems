@@ -190,12 +190,460 @@ TABLE_DEFINITIONS = {
             synced_at TIMESTAMP DEFAULT NOW(),
             PRIMARY KEY (file_key, node_id)
         )
-    """
+    """,
+    # ── Tables below were present in the live database but missing from
+    # init_db.py. Added 2026-08-01 so production deployments get the full
+    # schema. Generated from the local database snapshot.
+    'audit_logs': """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid,
+            action character varying(100) NOT NULL,
+            resource_type character varying(50),
+            resource_id uuid,
+            ip_address inet,
+            user_agent text,
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'conversation_tags': """
+        CREATE TABLE IF NOT EXISTS conversation_tags (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            tag_id uuid NOT NULL,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'data_dignity_ledger': """
+        CREATE TABLE IF NOT EXISTS data_dignity_ledger (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            memory_id uuid,
+            event_type character varying(50) NOT NULL,
+            value_points numeric(10,2) NOT NULL,
+            value_usd numeric(10,4),
+            usage_context character varying(100),
+            usage_count integer DEFAULT 1,
+            beneficiary_type character varying(50),
+            beneficiary_id uuid,
+            compensation_status character varying(20) DEFAULT 'pending'::character varying,
+            paid_at timestamp without time zone,
+            payment_method character varying(50),
+            payment_reference character varying(255),
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'grace_context': """
+        CREATE TABLE IF NOT EXISTS grace_context (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            memory_id uuid NOT NULL,
+            context_category character varying(100),
+            priority integer DEFAULT 50,
+            retrieval_count integer DEFAULT 0,
+            last_retrieved_at timestamp without time zone,
+            relevance_score numeric(3,2) DEFAULT 1.00,
+            hallucination_flags integer DEFAULT 0,
+            negative_feedback_count integer DEFAULT 0,
+            is_active boolean DEFAULT true,
+            deactivated_at timestamp without time zone,
+            deactivation_reason text,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'grace_decisions': """
+        CREATE TABLE IF NOT EXISTS grace_decisions (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            request_type character varying(50) NOT NULL,
+            request_summary text NOT NULL,
+            request_metadata jsonb DEFAULT '{}'::jsonb,
+            decision character varying(20) NOT NULL,
+            decision_reason text NOT NULL,
+            confidence_level numeric(3,2),
+            reasoning_trace text,
+            related_memory_id uuid,
+            related_context_id uuid,
+            was_overridden boolean DEFAULT false,
+            overridden_at timestamp without time zone,
+            override_justification text,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'grace_health_metrics': """
+        CREATE TABLE IF NOT EXISTS grace_health_metrics (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            metric_period timestamp without time zone NOT NULL,
+            response_quality_avg numeric(3,2),
+            hallucination_rate numeric(5,4),
+            coherence_score numeric(3,2),
+            creativity_score numeric(3,2),
+            mood_state character varying(50),
+            confidence_avg numeric(3,2),
+            uncertainty_rate numeric(3,2),
+            context_size_mb numeric(10,2),
+            context_utilization_pct numeric(5,2),
+            stale_context_pct numeric(5,2),
+            bad_source_exposure_count integer DEFAULT 0,
+            correction_count integer DEFAULT 0,
+            positive_feedback_count integer DEFAULT 0,
+            refusal_count integer DEFAULT 0,
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'invoices': """
+        CREATE TABLE IF NOT EXISTS invoices (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            subscription_id uuid,
+            stripe_invoice_id character varying(255),
+            amount_due integer NOT NULL,
+            amount_paid integer,
+            currency character varying(3) DEFAULT 'USD'::character varying,
+            status character varying(20) DEFAULT 'draft'::character varying,
+            invoice_pdf_url text,
+            due_date timestamp without time zone,
+            paid_at timestamp without time zone,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'memory_provenance': """
+        CREATE TABLE IF NOT EXISTS memory_provenance (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            memory_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            event_type character varying(50) NOT NULL,
+            event_metadata jsonb DEFAULT '{}'::jsonb,
+            initiated_by uuid,
+            initiated_by_type character varying(20),
+            context_type character varying(50),
+            context_id uuid,
+            usage_value numeric(10,4),
+            ip_address inet,
+            user_agent text,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'payment_methods': """
+        CREATE TABLE IF NOT EXISTS payment_methods (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            stripe_payment_method_id character varying(255) NOT NULL,
+            type character varying(50),
+            brand character varying(50),
+            last4 character varying(4),
+            exp_month integer,
+            exp_year integer,
+            is_default boolean DEFAULT false,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'promotion_queue': """
+        CREATE TABLE IF NOT EXISTS promotion_queue (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            memory_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            requested_by uuid NOT NULL,
+            request_reason text,
+            priority_level character varying(20) DEFAULT 'normal'::character varying,
+            status character varying(20) DEFAULT 'pending'::character varying,
+            reviewed_by uuid,
+            reviewed_at timestamp without time zone,
+            reviewer_notes text,
+            approval_votes integer DEFAULT 0,
+            rejection_votes integer DEFAULT 0,
+            automated_quality_score numeric(3,2),
+            manual_quality_score numeric(3,2),
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_artifacts': """
+        CREATE TABLE IF NOT EXISTS prompt_artifacts (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            project_id uuid,
+            artifact_type character varying(50) NOT NULL,
+            artifact_data jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_comments': """
+        CREATE TABLE IF NOT EXISTS prompt_comments (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            parent_id uuid,
+            content text NOT NULL,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_feedback': """
+        CREATE TABLE IF NOT EXISTS prompt_feedback (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            feedback_type character varying(50) NOT NULL,
+            content text NOT NULL,
+            status character varying(20) DEFAULT 'pending'::character varying,
+            curator_notes text,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_history': """
+        CREATE TABLE IF NOT EXISTS prompt_history (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            action character varying(50) NOT NULL,
+            user_id uuid NOT NULL,
+            changes jsonb,
+            timestamp timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_permissions': """
+        CREATE TABLE IF NOT EXISTS prompt_permissions (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            permission character varying(20) NOT NULL,
+            granted_by uuid,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_ratings': """
+        CREATE TABLE IF NOT EXISTS prompt_ratings (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            rating integer NOT NULL,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'prompt_shares': """
+        CREATE TABLE IF NOT EXISTS prompt_shares (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            conversation_id uuid NOT NULL,
+            shared_by uuid NOT NULL,
+            shared_with uuid NOT NULL,
+            permission_level character varying(20) DEFAULT 'read'::character varying,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'quarantine_items': """
+        CREATE TABLE IF NOT EXISTS quarantine_items (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            source_type character varying(50) NOT NULL,
+            source_id character varying(255),
+            url text,
+            title text,
+            content_preview text,
+            threat_level character varying(20) NOT NULL,
+            threat_category character varying(100),
+            threat_details jsonb,
+            status character varying(20) DEFAULT 'pending_review'::character varying,
+            reviewed_at timestamp without time zone,
+            reviewer_notes text,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'session_permissions': """
+        CREATE TABLE IF NOT EXISTS session_permissions (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            session_id uuid NOT NULL,
+            user_id uuid NOT NULL,
+            role character varying(20) NOT NULL DEFAULT 'owner'::character varying,
+            granted_by uuid,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'student_grades': """
+        CREATE TABLE IF NOT EXISTS student_grades (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            teacher_id uuid NOT NULL,
+            student_id uuid NOT NULL,
+            assignment_name character varying(255) NOT NULL,
+            assignment_type character varying(50) DEFAULT 'general'::character varying,
+            grade numeric(5,2),
+            max_points numeric(5,2),
+            letter_grade character varying(5),
+            feedback text,
+            rubric_data jsonb DEFAULT '{}'::jsonb,
+            metadata jsonb DEFAULT '{}'::jsonb,
+            due_date timestamp without time zone,
+            submitted_at timestamp without time zone,
+            graded_at timestamp without time zone DEFAULT now(),
+            status character varying(20) DEFAULT 'graded'::character varying,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now(),
+            deleted_at timestamp without time zone
+        )
+    """,
+    'student_profiles': """
+        CREATE TABLE IF NOT EXISTS student_profiles (
+            student_id uuid NOT NULL,
+            student_number character varying(50),
+            enrollment_date timestamp without time zone DEFAULT now(),
+            graduation_date timestamp without time zone,
+            gpa numeric(4,2),
+            total_credits integer DEFAULT 0,
+            academic_level character varying(50),
+            parent_email character varying(255),
+            parent_phone character varying(50),
+            emergency_contact_name character varying(255),
+            emergency_contact_phone character varying(50),
+            notes text,
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'subscription_plans': """
+        CREATE TABLE IF NOT EXISTS subscription_plans (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            name character varying(100) NOT NULL,
+            slug character varying(50) NOT NULL,
+            description text,
+            price_monthly numeric(10,2) NOT NULL,
+            price_yearly numeric(10,2),
+            stripe_price_id_monthly character varying(255),
+            stripe_price_id_yearly character varying(255),
+            queries_per_month integer,
+            pdf_uploads_per_month integer,
+            memory_storage_mb integer,
+            max_file_size_mb integer DEFAULT 10,
+            features jsonb DEFAULT '{}'::jsonb,
+            is_active boolean DEFAULT true,
+            sort_order integer DEFAULT 0,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'tag_definitions': """
+        CREATE TABLE IF NOT EXISTS tag_definitions (
+            id uuid NOT NULL DEFAULT gen_random_uuid(),
+            tag_name character varying(255) NOT NULL,
+            tag_level integer NOT NULL,
+            parent_tag_id uuid,
+            tag_path character varying(500) NOT NULL,
+            description text,
+            user_id uuid,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'teacher_students': """
+        CREATE TABLE IF NOT EXISTS teacher_students (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            teacher_id uuid NOT NULL,
+            student_id uuid NOT NULL,
+            status character varying(20) DEFAULT 'active'::character varying,
+            enrollment_date timestamp without time zone DEFAULT now(),
+            notes text,
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now(),
+            deleted_at timestamp without time zone
+        )
+    """,
+    'training_data': """
+        CREATE TABLE IF NOT EXISTS training_data (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            question text NOT NULL,
+            answer text NOT NULL,
+            reasoning_trace text,
+            confidence_score numeric(3,2),
+            quality_score numeric(3,2),
+            source_type character varying(50),
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'usage_metrics': """
+        CREATE TABLE IF NOT EXISTS usage_metrics (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            metric_type character varying(50) NOT NULL,
+            count integer DEFAULT 1,
+            period_month date NOT NULL,
+            metadata jsonb DEFAULT '{}'::jsonb,
+            created_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'user_grace_settings': """
+        CREATE TABLE IF NOT EXISTS user_grace_settings (
+            user_id uuid NOT NULL,
+            temperature numeric(3,2) DEFAULT 0.45,
+            reasoning_style character varying(50) DEFAULT 'chain_of_thought'::character varying,
+            self_reflection boolean DEFAULT true,
+            second_order_reasoning boolean DEFAULT false,
+            memory_integration boolean DEFAULT true,
+            training_mode character varying(50) DEFAULT 'balanced'::character varying,
+            confidence_threshold character varying(50) DEFAULT 'medium'::character varying,
+            learning_focus jsonb DEFAULT '{"writingStyle": true, "topicKnowledge": true, "errorCorrections": true, "feedbackPatterns": true}'::jsonb,
+            auto_qna boolean DEFAULT true,
+            editorial jsonb DEFAULT '{"stance": "collaborative", "enabled": true, "askObjectiveFirst": true, "structuralCritique": false, "detectChatGPTPatterns": true, "voicePreservationPriority": "high"}'::jsonb,
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
+    'user_memory_log': """
+        CREATE TABLE IF NOT EXISTS user_memory_log (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            qdrant_point_id character varying(255) NOT NULL,
+            qdrant_collection character varying(255) NOT NULL,
+            content_preview text,
+            content_hash character varying(64),
+            source_type character varying(50) NOT NULL,
+            source_id uuid,
+            importance_score numeric(3,2) DEFAULT 0.5,
+            access_count integer DEFAULT 0,
+            last_accessed_at timestamp without time zone,
+            is_archived boolean DEFAULT false,
+            archived_at timestamp without time zone,
+            archive_location text,
+            created_at timestamp without time zone DEFAULT now(),
+            milvus_point_id character varying(255),
+            milvus_collection character varying(255),
+            embedding_model_version character varying(100) DEFAULT 'bge-small-en-v1'::character varying,
+            context_type character varying(50) DEFAULT 'general'::character varying,
+            chunk_index integer,
+            total_chunks integer DEFAULT 1
+        )
+    """,
+    'user_subscriptions': """
+        CREATE TABLE IF NOT EXISTS user_subscriptions (
+            id uuid NOT NULL DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL,
+            plan_id uuid NOT NULL,
+            status character varying(20) DEFAULT 'active'::character varying,
+            billing_cycle character varying(20) DEFAULT 'monthly'::character varying,
+            current_period_start timestamp without time zone NOT NULL,
+            current_period_end timestamp without time zone NOT NULL,
+            trial_end timestamp without time zone,
+            cancel_at_period_end boolean DEFAULT false,
+            canceled_at timestamp without time zone,
+            cancellation_reason text,
+            stripe_customer_id character varying(255),
+            stripe_subscription_id character varying(255),
+            created_at timestamp without time zone DEFAULT now(),
+            updated_at timestamp without time zone DEFAULT now()
+        )
+    """,
 }
 
 # Safe column migrations - adds column if missing, never drops
 COLUMN_MIGRATIONS = [
     # conversations table
+    ("conversations", "session_id", "UUID NOT NULL DEFAULT gen_random_uuid()"),
+    ("conversations", "created_by", "UUID"),
     ("conversations", "surface_state_json", "TEXT"),
     ("conversations", "surface_updated_at", "TIMESTAMP"),
     ("conversations", "is_archived", "BOOLEAN DEFAULT FALSE"),
@@ -510,11 +958,24 @@ def init_database():
         conn.autocommit = True
         cur = conn.cursor()
 
+        # Step 0: Ensure uuid-ossp extension (needed by uuid_generate_v4())
+        cur.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+
         # Step 1: Create tables if they don't exist (order matters for foreign keys)
         table_order = [
             'users', 'projects', 'conversations', 'conversation_messages',
             'user_memories', 'prompt_sessions', 'prompt_versions', 'ai_suggestions', 'tags',
-            'prompt_context', 'categories', 'figma_specs'
+            'prompt_context', 'categories', 'figma_specs',
+            'audit_logs', 'conversation_tags', 'data_dignity_ledger',
+            'grace_context', 'grace_decisions', 'grace_health_metrics',
+            'invoices', 'memory_provenance', 'payment_methods',
+            'promotion_queue', 'prompt_artifacts', 'prompt_comments',
+            'prompt_feedback', 'prompt_history', 'prompt_permissions',
+            'prompt_ratings', 'prompt_shares', 'quarantine_items',
+            'session_permissions', 'student_grades', 'student_profiles',
+            'subscription_plans', 'tag_definitions', 'teacher_students',
+            'training_data', 'usage_metrics', 'user_grace_settings',
+            'user_memory_log', 'user_subscriptions'
         ]
 
         for table_name in table_order:
