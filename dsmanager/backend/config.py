@@ -36,3 +36,25 @@ class MilvusConfig:
     get_all_collections = staticmethod(get_all_collections)
 
 milvus_config = MilvusConfig()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dev mode detection (caches are NEVER used in development)
+# Set in backend/.env:
+#   ENVIRONMENT=development
+#   (also accepts: dev, local)
+# Or set DEBUG=1 / true
+# ─────────────────────────────────────────────────────────────────────────────
+def is_development() -> bool:
+    """
+    Returns True when running in local development mode.
+    In this mode all in-memory/TTL caches are bypassed so every request
+    hits the real data sources (DB, Milvus, Figma, etc.).
+    """
+    env = (os.getenv("ENVIRONMENT") or "").strip().lower()
+    if env in ("development", "dev", "local"):
+        return True
+    debug = (os.getenv("DEBUG") or "").strip().lower()
+    if debug in ("1", "true", "yes", "on"):
+        return True
+    return False

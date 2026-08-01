@@ -84,19 +84,13 @@ export const SidebarNavigation: React.FC<SidebarNavigationProps> = ({
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
 
-    if (isGripperDragging) {
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    } else {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
+    // Don't change cursor during drag - let the user see what's under their cursor
+    // This prevents jerky motion
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      // document.body.style.cursor = '';
+      // document.body.style.userSelect = '';
     };
   }, [isGripperDragging]);
 

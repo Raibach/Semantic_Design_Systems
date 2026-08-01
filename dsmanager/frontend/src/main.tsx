@@ -8,6 +8,11 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./index.css";
 
+/** A2UI v0.9.1 Lit workspace components (model-driven composer) */
+import "@/components/lit/prompt-section-editor";
+import "@/components/lit/compiled-output-viewer";
+import "@/components/lit/workspace-layout";
+
 // ── Lit web component registry — side-effect imports auto-register custom elements ──
 import "@/components/lit/agent-card-element";
 import "@/components/lit/chat-navigation-bar";

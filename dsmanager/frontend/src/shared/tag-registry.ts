@@ -1071,6 +1071,53 @@ export const TAG_REGISTRY = {
     events: [],
     constraints: ['requires lexical-editor to be loaded'],
   },
+
+  // ── A2UI v0.9.1 LIT-PORTED WORKSPACE COMPONENTS (model is architect) ──────
+  // These are the exact tags the backend now instructs the LLM to emit for
+  // composer surfaces. They replace the old React tree (PromptWorkspace,
+  // ResponsivePromptBuilder, MiddleColumnSlot) inside slot="workspace".
+  'prompt-section-editor': {
+    tag: 'prompt-section-editor',
+    surface: 'composer',
+    column: 'left',
+    description: 'Lit Web Component (port of ResponsivePromptBuilder + DnD). Manages prompt sections (System/User/Tool/Few Shot/Context/Constraints + custom). Supports add/remove/reorder via events, textareas, left-rail icons, and path binding to /session/left_column/sections. AI emits this; React shell only hosts it.',
+    props: {
+      sections: { type: 'array', optional: true },
+      sessionId: { type: 'string', optional: true },
+      isRunning: { type: 'boolean', optional: true },
+    },
+    events: ['section-update', 'section-add', 'section-remove', 'section-reorder', 'run-requested', 'save-requested'],
+    constraints: [],
+  },
+  'compiled-output-viewer': {
+    tag: 'compiled-output-viewer',
+    surface: 'composer',
+    column: 'middle',
+    description: 'Lit Web Component (port of MiddleColumnSlot output logic). Streams compiled prompt output, shows tokens/cost/model, copy, regenerate, raw vs rendered toggle, status. Binds to /session/middle_column/compiled_output. No React fallback inside the surface.',
+    props: {
+      content: { type: 'string', optional: true },
+      status: { type: 'string', optional: true },
+      model: { type: 'string', optional: true },
+      tokens: { type: 'number', optional: true },
+      isRunning: { type: 'boolean', optional: true },
+      sessionId: { type: 'string', optional: true },
+    },
+    events: ['copy-output', 'regenerate-requested', 'clear-output'],
+    constraints: [],
+  },
+  'workspace-layout': {
+    tag: 'workspace-layout',
+    surface: 'composer',
+    column: undefined,
+    description: 'Lit Web Component (exact port of PromptWorkspace + ResizableSplitter resize/gripper/double-click logic). Provides the 3-column resizable host with CSS vars, mouse handlers, and named slots "left" | "middle" | "right". AI emits this as the container; it hosts prompt-section-editor, compiled-output-viewer, and chat-panel.',
+    props: {
+      leftWidth: { type: 'number', optional: true },
+      rightWidth: { type: 'number', optional: true },
+      isThirdOpen: { type: 'boolean', optional: true },
+    },
+    events: ['resize-start', 'resize', 'resize-end', 'third-column-toggle'],
+    constraints: ['must contain prompt-section-editor (left), compiled-output-viewer (middle), chat-panel (right)'],
+  },
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1129,6 +1176,10 @@ export const AI_PLAYGROUND_TAGS: TagName[] = [
   'status-indicator',
   'error-banner',
   'dynamic-button',
+  // A2UI v0.9.1 Lit-ported workspace (model is the architect)
+  'prompt-section-editor',
+  'compiled-output-viewer',
+  'workspace-layout',
 ];
 
 /** Tags belonging to the shell — AI must never touch these */

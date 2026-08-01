@@ -87,6 +87,10 @@ export const SLOT_MAP: Record<string, readonly string[]> = {
   'agent-card-element': [],   // no named slots — uses default slot for card content
   'chat-navigation-bar': ['logo'],
   'status-indicator': [],     // no named slots — uses default slot for message text
+  // A2UI v0.9.1 Lit workspace (model-driven, replaces React PromptWorkspace tree)
+  'workspace-layout': ['left', 'middle', 'right'],
+  'prompt-section-editor': [],
+  'compiled-output-viewer': [],
 } as const;
 
 /** Resolve the named slots for a given Lit component tag. */
@@ -160,6 +164,34 @@ export const LIT_COMPONENT_MANIFEST: readonly LitComponentEntry[] = [
     propCount: 2,
     slots: SLOT_MAP['status-indicator'],
     events: [],
+  },
+  // A2UI v0.9.1 — Lit-ported workspace components (model is architect)
+  {
+    tag: 'workspace-layout',
+    file: 'components/lit/workspace-layout.ts',
+    surface: 'composer',
+    status: 'built',
+    propCount: 3,
+    slots: SLOT_MAP['workspace-layout'],
+    events: ['resize-start', 'resize', 'resize-end', 'third-column-toggle'],
+  },
+  {
+    tag: 'prompt-section-editor',
+    file: 'components/lit/prompt-section-editor.ts',
+    surface: 'composer',
+    status: 'built',
+    propCount: 3,
+    slots: SLOT_MAP['prompt-section-editor'],
+    events: ['section-update', 'section-add', 'section-remove', 'section-reorder', 'run-requested', 'save-requested'],
+  },
+  {
+    tag: 'compiled-output-viewer',
+    file: 'components/lit/compiled-output-viewer.ts',
+    surface: 'composer',
+    status: 'built',
+    propCount: 6,
+    slots: SLOT_MAP['compiled-output-viewer'],
+    events: ['copy-output', 'regenerate-requested', 'clear-output'],
   },
 ] as const;
 

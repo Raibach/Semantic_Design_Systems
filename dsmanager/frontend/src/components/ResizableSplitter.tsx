@@ -59,10 +59,10 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   const SLIDE_DURATION_MS = prefersReducedMotion ? 0 : 420;
 
   const getWidthTransition = () => {
-    // Always none during resize operations to prevent snap/jerk on mousedown
+    // Always use smooth transition for collapse/expand, never during drag
     if (isResizing || isResizingThird || isSidebarDragging) return 'none';
-    // No animated transition on width — only use for collapse/expand durations
-    return 'none';
+    // Use smooth slide transition for collapse/expand animations
+    return `${SLIDE_EASING} ${SLIDE_DURATION_MS}ms`;
   };
 
   const applyPrimaryResize = useCallback((clientX: number) => {
@@ -86,6 +86,7 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
     if (!containerRef.current) return;
 
     const containerRect = containerRef.current.getBoundingClientRect();
+    const containerRightEdge = containerRect.left + containerRect.width;
     
     if (isLeftColumnCollapsed) {
       // Expand left column
@@ -94,7 +95,9 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
         ? containerRect.width - minRightWidth - thirdWidth - 16
         : containerRect.width - minRightWidth - 8;
 
-      setLeftWidth(Math.max(minLeftWidth, Math.min(restoredLeftWidth, maxLeftWidth)));
+      // Clamp to container right edge minus gripper and right column minimum
+      const clampedLeftWidth = Math.min(restoredLeftWidth, containerRightEdge - minRightWidth - 8);
+      setLeftWidth(Math.max(minLeftWidth, clampedLeftWidth));
     } else {
       // Collapse left column
       preLeftCollapseWidthRef.current = leftWidth;
@@ -218,18 +221,10 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
     const collapseTargetLeftWidth = isThirdColumnOpen
       ? containerRect.width - thirdWidth - minRightWidth - 16
       : containerRect.width - minRightWidth - 8;
-    const expandedMaxLeftWidth = isThirdColumnOpen
-      ? containerRect.width - minRightWidth - thirdWidth - 16
-      : containerRect.width - minRightWidth - 8;
 
-    const finalizedWidth = Math.max(minLeftWidth, Math.min(leftWidth, expandedMaxLeftWidth));
-
-    setLeftWidth(Math.round(finalizedWidth));
-    sessionStorage.setItem(STORAGE_KEY, Math.round(finalizedWidth).toString());
-    
-    // When resizing the left column, don't automatically close the third column
-    // Third column should only close when explicitly dragged to 0 width
-    // No action needed here for third column state
+    // Just use the final position, no clamping - let the user decide
+    setLeftWidth(Math.round(leftWidth));
+    sessionStorage.setItem(STORAGE_KEY, Math.round(leftWidth).toString());
   };
 
   useEffect(() => {
@@ -279,14 +274,9 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
       const collapseTargetLeftWidth = isThirdColumnOpen
         ? containerRect.width - thirdWidth - minRightWidth - 16
         : containerRect.width - minRightWidth - 8;
-      const expandedMaxLeftWidth = isThirdColumnOpen
-        ? containerRect.width - minRightWidth - thirdWidth - 16
-        : containerRect.width - minRightWidth - 8;
 
-      const finalizedWidth = Math.max(minLeftWidth, Math.min(leftWidth, expandedMaxLeftWidth));
-
-      setLeftWidth(Math.round(finalizedWidth));
-      sessionStorage.setItem(STORAGE_KEY, Math.round(finalizedWidth).toString());
+      setLeftWidth(Math.round(Math.max(minLeftWidth, Math.min(leftWidth, collapseTargetLeftWidth))));
+      sessionStorage.setItem(STORAGE_KEY, Math.round(Math.max(minLeftWidth, Math.min(leftWidth, collapseTargetLeftWidth))).toString());
       setIsSidebarDragging(false);
     };
 
@@ -427,17 +417,11 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
       const equalWidth = Math.floor(availableWidth / 3);
       
       // Ensure minimum widths are respected
-      const finalLeftWidth = Math.max(minLeftWidth, equalWidth);
-      const finalThirdWidth = Math.max(300, equalWidth); // Use 300 as minimum for third column
-      
-      // Calculate right column width based on the other two columns
-      // Right column width = totalWidth - leftWidth - thirdWidth - 16 (grippers)
-      const rightColumnWidth = totalWidth - finalLeftWidth - finalThirdWidth - 16;
+      let finalLeftWidth = Math.max(minLeftWidth, equalWidth);
+      let finalThirdWidth = Math.max(300, equalWidth); // Use 300 as minimum for third column
+      let rightColumnWidth = totalWidth - finalLeftWidth - finalThirdWidth - 16;
       
       // If right column would be less than minimum, adjust left and third columns
-      let adjustedLeftWidth = finalLeftWidth;
-      let adjustedThirdWidth = finalThirdWidth;
-      
       if (rightColumnWidth < minRightWidth) {
         // Need to reduce left and third columns to make room for right column
         const neededWidthForRight = minRightWidth;
@@ -445,24 +429,22 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
         
         // Split remaining space equally between left and third columns
         const newEqualWidth = Math.floor(availableForLeftAndThird / 2);
-        adjustedLeftWidth = Math.max(minLeftWidth, newEqualWidth);
-        adjustedThirdWidth = Math.max(300, newEqualWidth);
+        finalLeftWidth = Math.max(minLeftWidth, newEqualWidth);
+        finalThirdWidth = Math.max(300, newEqualWidth);
         
-        console.log(`⚠️ Adjusted widths to respect minRightWidth: left=${adjustedLeftWidth}px, third=${adjustedThirdWidth}px, right=${minRightWidth}px`);
+        console.log(`⚠️ Adjusted widths to respect minRightWidth: left=${finalLeftWidth}px, third=${finalThirdWidth}px, right=${minRightWidth}px`);
       } else {
         console.log(`📏 Setting columns to equal widths: left=${finalLeftWidth}px, third=${finalThirdWidth}px`);
       }
       
       // Set the widths
-      setLeftWidth(adjustedLeftWidth);
-      setThirdWidth(adjustedThirdWidth);
+      setLeftWidth(finalLeftWidth);
+      setThirdWidth(finalThirdWidth);
       
       // Save to sessionStorage to override any manual settings
-      sessionStorage.setItem(STORAGE_KEY, adjustedLeftWidth.toString());
-      sessionStorage.setItem('grace_editor_third_column_width', adjustedThirdWidth.toString());
+      sessionStorage.setItem(STORAGE_KEY, finalLeftWidth.toString());
+      sessionStorage.setItem('grace_editor_third_column_width', finalThirdWidth.toString());
       sessionStorage.setItem(THRESHOLD_KEY, 'true'); // Mark third column as open
-      
-      // Ensure third column is open
       setIsThirdColumnOpen(true);
     };
 
@@ -498,12 +480,12 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
   return (
     <div
       ref={containerRef}
-      className="flex h-full w-full overflow-hidden relative"
+      className="flex h-full w-full overflow: hidden relative"
       style={{ height: '100%' }}
     >
       {/* Left Column */}
       <div
-        className="overflow-hidden flex flex-col h-full"
+        className="flex flex-col h-full overflow-y-auto"
         style={{
           width: isLeftColumnCollapsed
             ? `${LEFT_COLUMN_COLLAPSED_WIDTH}px`
@@ -511,8 +493,9 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
           minWidth: isLeftColumnCollapsed
             ? `${LEFT_COLUMN_COLLAPSED_WIDTH}px`
             : `${minLeftWidth}px`,
-          transition: getWidthTransition(),
-          willChange: 'width'
+          flex: '0 0 auto',
+          transition: isLeftColumnCollapsed ? `${SLIDE_EASING} ${SLIDE_DURATION_MS}ms` : 'none',
+          willChange: isLeftColumnCollapsed ? 'width' : 'auto'
         }}
       >
         {leftColumnTitle && (
@@ -528,31 +511,34 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
       {/* Gripper */}
       <div
         ref={gripperRef}
-        className="cursor-col-resize hover:bg-blue-500 transition-colors relative z-50"
+        className="cursor-col-resize hover:bg-blue-500 relative z-50"
         onMouseDown={handleMouseDown}
         onDoubleClick={handleGripperDoubleClick}
         title="Drag to resize (Ctrl/Cmd + Arrow Left/Right). Double-click to collapse/expand."
           style={{ 
             width: '8px',
             backgroundColor: gripperColor,
-            cursor: 'col-resize'
+            cursor: 'col-resize',
+            transition: 'none',
+            willChange: 'auto'
           }}
         >
       </div>
 
-      {/* Third Column - Only show when explicitly opened by user */}
-      {isThirdColumnOpen && (
-        <>
-          <div
-            className="overflow-hidden flex flex-col"
-            style={{ 
-              width: `${thirdWidth}px`,
-              minWidth: '0px',
-              transition: getWidthTransition(),
-              willChange: 'width',
-              height: '100%'
-            }}
-          >
+          {/* Third Column - Only show when explicitly opened by user */}
+          {isThirdColumnOpen && (
+            <>
+              <div
+                className="flex flex-col overflow-y-auto"
+                style={{ 
+                  width: `${thirdWidth}px`,
+                  minWidth: '0px',
+                  flex: '0 0 auto',
+                  transition: isRightColumnCollapsed ? `${SLIDE_EASING} ${SLIDE_DURATION_MS}ms` : 'none',
+                  willChange: isRightColumnCollapsed ? 'width' : 'auto',
+                  height: '100%'
+                }}
+              >
             {thirdColumnTitle && (
               <div className={`flex-shrink-0 px-3 py-2 border-b border-border ${headerBg}`}>
                 <h2 className={`text-sm font-semibold ${headerText}`}>{thirdColumnTitle}</h2>
@@ -575,13 +561,15 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
           {/* Second Gripper */}
           <div
             ref={secondGripperRef}
-            className="cursor-col-resize hover:bg-blue-500 transition-colors relative z-50"
+            className="cursor-col-resize hover:bg-blue-500 relative z-50"
             onMouseDown={handleSecondGripperMouseDown}
             title="Drag to resize third column (Ctrl/Cmd + Arrow Left/Right)"
             style={{ 
               width: '8px',
               backgroundColor: gripperColor,
-              cursor: 'col-resize'
+              cursor: 'col-resize',
+              transition: 'none',
+              willChange: 'auto'
             }}
           >
           </div>
@@ -590,16 +578,16 @@ export const ResizableSplitter: React.FC<ResizableSplitterProps> = ({
 
       {/* Right Column — always fills remaining space, right edge stays flush with browser */}
       <div
-        className="overflow-hidden flex flex-col"
+        className="flex flex-col overflow-y-auto"
         style={{ 
           width: isRightColumnCollapsed
             ? `${RIGHT_COLUMN_COLLAPSED_WIDTH}px`
-            : undefined,
-          flex: isRightColumnCollapsed ? '0 0 auto' : '1 1 auto',
+            : `${minRightWidth}px`,
           minWidth: isRightColumnCollapsed
             ? `${RIGHT_COLUMN_COLLAPSED_WIDTH}px`
             : `${minRightWidth}px`,
-          transition: getWidthTransition(),
+          flex: '0 0 auto',
+          transition: isRightColumnCollapsed ? `${SLIDE_EASING} ${SLIDE_DURATION_MS}ms` : 'none',
           height: '100%'
         }}
       >

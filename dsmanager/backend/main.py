@@ -39,8 +39,6 @@ from grace_gui import (
     summarize_pdfs,
     milvus_save_version,
     milvus_get_versions,
-    milvus_audit_action,
-    milvus_store_memory,
 )
 from conversation_api import ConversationAPI
 from projects_api import ProjectsAPI
@@ -61,8 +59,7 @@ app = FastAPI(title="Grace AI API", description="Backend API for Grace AI assist
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Local frontend dev
-        "http://localhost:5001",  # Local backend dev
+        "http://localhost:5001",  # Local backend + UI (serves frontend/dist)
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -82,9 +79,9 @@ async def startup_event():
     import services
     services.init_services(database_url)
 
-    # DeepSeek startup verification
+    # Z.ai GLM-5.2 startup verification (primary provider)
     from model_server_manager import ensure_grace_server
-    ensure_grace_server()
+    ensure_grace_server("zai")
 
 
 # ── Route modules (extracted during modularization) ─────────────────

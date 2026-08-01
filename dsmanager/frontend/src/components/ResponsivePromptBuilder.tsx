@@ -677,30 +677,18 @@ function AutoResizeTextarea({
       }
     };
 
-    // CRITICAL FIX: Handler to collect content from React state for saving
-    const handleCollectContent = () => {
-      if (sectionName) {
-        // Send current React state value back to the save function
-        window.dispatchEvent(new CustomEvent('prompt-section-response', {
-          detail: {
-            sectionName: sectionName,
-            content: value  // Send the actual React state value
-          }
-        }));
-        console.log(`[AutoResizeTextarea] Sending content for "${sectionName}": ${value.length} chars`);
-      }
-    };
+    // DEAD CODE REMOVED: collect-prompt-sections / prompt-section-response
+    // The save pipeline now reads sections from the Lit <prompt-section-editor> ref.
+    // These React textareas are NOT the source of truth — the Lit editor is.
 
     window.addEventListener('clear-left-column', handleClear);
     window.addEventListener('set-left-column-text', handleSet);
     window.addEventListener('force-set-section', handleForceSet);
-    window.addEventListener('collect-prompt-sections', handleCollectContent);
 
     return () => {
       window.removeEventListener('clear-left-column', handleClear);
       window.removeEventListener('set-left-column-text', handleSet);
       window.removeEventListener('force-set-section', handleForceSet);
-      window.removeEventListener('collect-prompt-sections', handleCollectContent);
     };
   }, [sectionName, adjustHeight, value]);
 
@@ -980,12 +968,18 @@ function UserRoleSection({ dragRef, onRemove, onRoleChange }: { dragRef?: any; o
         )}
       </AnimatePresence>
 
-      <div className="absolute h-[28px] left-[14px] top-[7px] w-[27px] pointer-events-none">
-        <div className="absolute bottom-1/4 left-[11.88%] right-[11.88%] top-[7.54%]">
-          <svg className="block size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 20.5834 18.8884">
-            <path d={svgPaths.p3d183980} fill="var(--fill-0, #E4D48E)" id="Polygon 1" stroke="var(--stroke-0, #D29207)" />
-          </svg>
-        </div>
+      <div className="absolute left-[-56px] size-[37px] top-[104px] pointer-events-none">
+        <svg className="block size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 37 37">
+          <g id="Frame 886906">
+            <path d={svgPaths.p33651600} id="Vector 602" stroke="url(#paint0_linear_4_1734)" strokeLinecap="round" strokeWidth="2" />
+          </g>
+          <defs>
+            <linearGradient gradientUnits="userSpaceOnUse" id="paint0_linear_4_1734" x1="19.5" x2="19.5" y1="7" y2="30">
+              <stop stopColor="#7E72E3" />
+              <stop offset="1" stopColor="#4234B8" />
+            </linearGradient>
+          </defs>
+        </svg>
       </div>
     </div>
   );
@@ -1496,7 +1490,7 @@ function AgentRoleContentWithRAG() {
       {/* <LeftRailIcon position="status" type="info" title="RAG context injection" onClick={() => console.log('Jump to RAG section')} /> */}
       
       <motion.div 
-        className="bg-[rgba(255,255,255,0.5)] mr-[20px] rounded-[6px] mt-[10px] p-[10px] overflow-hidden" 
+        className="bg-[rgba(255,255,255,0.5)] mr-[20px] rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] mt-[10px] p-[10px] overflow-hidden" 
         style={{ marginLeft: `${LEFT_RAIL.CONTENT_START}px` }}
         initial={false}
         animate={{ 
@@ -1517,7 +1511,7 @@ A retrieved context variable can be inserted into the user role section of a pro
         )}
         {!isExpanded && (
           <div className="w-full font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[25px] text-[16px] text-black/40 cursor-pointer" onClick={handleCollapseClick}>
-            Retrieved context variable "Based on this context...
+            Retrieved context variable "Based on this context..."
           </div>
         )}
       </motion.div>
@@ -1652,7 +1646,8 @@ function GenericRoleSection({ roleName, dragRef, onRemove, onRoleChange }: { rol
       <AnimatePresence mode="wait">
         {showConfirmRemove ? (
           <motion.div key="confirm-remove" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}
-            className="absolute bg-white h-[43px] left-[51.92px] right-[224px] rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] top-0 px-3 py-3">
+            className="absolute bg-white h-[43px] left-[51.92px] right-[224px] rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] top-0 px-3 py-3"
+          >
             <div className="flex items-center justify-between h-full w-full">
               <p className="font-['Inter:Semi_Bold',sans-serif] font-semibold text-[14px] text-[#171717]">Remove this section?</p>
               <div className="flex gap-2">
@@ -1664,7 +1659,8 @@ function GenericRoleSection({ roleName, dragRef, onRemove, onRoleChange }: { rol
         ) : (
           <motion.button key="role-button" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}
             ref={dragRef || buttonRef} onClick={() => setShowDropdown(!showDropdown)}
-            className="absolute bg-white h-[43px] left-[51.92px] right-[224px] rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] top-0 hover:outline hover:outline-2 hover:outline-[#4066e3] transition-all px-3 py-3 cursor-move">
+            className="absolute bg-white h-[43px] left-[51.92px] right-[224px] rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] top-0 hover:outline hover:outline-2 hover:outline-[#4066e3] transition-all px-3 py-3 cursor-move"
+          >
             <div className="flex items-center h-full">
               <p className="font-['Inter:Bold',sans-serif] font-bold text-[18px] text-[#171717] leading-[normal]">{roleName}</p>
             </div>
@@ -1674,9 +1670,11 @@ function GenericRoleSection({ roleName, dragRef, onRemove, onRoleChange }: { rol
       
       {showDropdown && !showConfirmRemove && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}
-          className="absolute left-[51.92px] top-[48px] bg-white rounded-[6px] shadow-[-4px_4px_10px_0px_rgba(0,0,0,0.15)] right-[224px] z-50">
+          className="absolute left-[51.92px] top-[48px] bg-white rounded-[6px] shadow-[-4px_4px_10px_0px_rgba(0,0,0,0.15)] right-[224px] z-50"
+        >
           <div className="py-2">
-            <button onClick={() => { setShowConfirmRemove(true); setShowDropdown(false); }}
+            <button 
+              onClick={() => { setShowConfirmRemove(true); setShowDropdown(false); }}
               className="w-full px-4 py-2 text-left text-[14px] font-semibold hover:bg-[#ffebeb] text-[#d32f2f]">Remove Role</button>
             <div className="border-t border-gray-200 my-1"></div>
             {['User Role', 'Tool Call', 'Few Shot', 'Context', 'Constraints', 'Agent Role'].filter(r => r !== roleName).map(r => (
@@ -1740,7 +1738,7 @@ function SelectRoleSection({ onRoleSelect }: { onRoleSelect?: (role: string) => 
         }}
         className="absolute bg-white font-['Inter:Bold',sans-serif] font-bold h-[43px] leading-[0] left-[39px] right-[54px] not-italic rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),4px_4px_10px_0px_rgba(0,0,0,0.15)] top-[0px] hover:outline hover:outline-2 hover:outline-[#4066e3] focus:outline focus:outline-2 focus:outline-[#4066e3] transition-all"
       >
-        <div className="-translate-y-1/2 absolute flex flex-col h-[43px] justify-center left-[15px] text-[18px] top-[21.5px] w-[162px]">
+        <div className="-translate-y-1/2 absolute flex h-[43px] items-center justify-center left-[15px] text-[18px] top-[21.5px] w-[162px]">
           <p className={`leading-[normal] whitespace-pre-wrap ${selectedRole ? 'text-[#171717]' : 'text-[#767676]'}`}>
             {selectedRole ? 'Remove Role' : 'Add Section'}
           </p>
@@ -1993,131 +1991,7 @@ function PromptOutputSidebar() {
   );
 }
 
-function ControlBar({ isSaving }: { isSaving: boolean }) {
-  const { canUndo, addToHistory, undo, historyCount } = useHistory(5);
-
-  // Simulate adding to history when RUN button is clicked
-  const handleRun = () => {
-    addToHistory(Date.now());
-    // Dispatch event to create third column
-    window.dispatchEvent(new CustomEvent('toggle-third-column'));
-    // Dispatch run-prompt so PromptWorkspace collects sections and calls API
-    window.dispatchEvent(new CustomEvent('run-prompt'));
-  };
-
-  return (
-    <div className="bg-[#b5ccce] h-[65px] relative w-full shrink-0">
-      <div className="absolute h-[44px] left-[21px] top-[10px] right-[21px] flex items-center gap-3" data-name="ctas for first input panel">
-        {/* Spacer - pushes controls to the right */}
-        <div className="flex-1" />
-
-        {/* Custom Undo Button */}
-        <button 
-          onClick={undo}
-          disabled={!canUndo}
-          className={`relative h-[36px] w-[36px] shrink-0 transition-all group ${
-            canUndo ? 'hover:scale-105 cursor-pointer' : 'opacity-40 cursor-not-allowed'
-          }`}
-          title={canUndo ? `Undo (${historyCount} step${historyCount !== 1 ? 's' : ''} available)` : 'No steps to undo'}
-        >
-          {/* Grey circle background */}
-          <svg className="block size-full" fill="none" preserveAspectRatio="none" viewBox="0 0 36 36">
-            <circle cx="18" cy="18" r="17" fill="#E5E5E5" stroke="#A7A7A7" strokeWidth="2" />
-          </svg>
-          
-          {/* Undo arrow icon - properly centered */}
-          <svg 
-            className={`absolute inset-0 m-auto w-[20px] h-[20px] transition-colors ${
-              canUndo ? 'text-[#484460] group-hover:text-[#4066e3]' : 'text-[rgba(72,68,96,0.3)]'
-            }`}
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor" 
-            strokeWidth="2.5"
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-          >
-            <path d="M3 7v6h6" />
-            <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
-          </svg>
-          
-          {/* Step counter badge - only show when there are steps */}
-          {historyCount > 0 && (
-            <div className="absolute -top-1 -right-1 bg-[#4066e3] text-white text-[9px] font-bold rounded-full w-[14px] h-[14px] flex items-center justify-center">
-              {historyCount}
-            </div>
-          )}
-        </button>
-
-        {/* Save Template Button — Shows spinner when Grace is compiling */}
-        <button
-          onClick={() => {
-            if (isSaving) return; // Prevent double-click
-            window.dispatchEvent(new CustomEvent('save-template'));
-            console.log('📤 Dispatched save-template event from Save Template button');
-          }}
-          disabled={isSaving}
-          className={`h-[43px] px-6 rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),0px_4px_4px_0px_rgba(0,0,0,0.25)] transition-all shrink-0 ${
-            isSaving
-              ? 'bg-[#e8f4f0] cursor-wait'
-              : 'bg-white hover:outline hover:outline-2 hover:outline-[#4066e3] focus:outline focus:outline-2 focus:outline-[#4066e3] cursor-pointer'
-          }`}>
-          <div className="flex items-center justify-center font-['Inter:Bold',sans-serif] font-bold h-full not-italic text-[16px] text-center gap-2">
-            {isSaving ? (
-              <>
-                {/* Spinner */}
-                <svg className="animate-spin h-4 w-4 text-[#507274]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span className="text-[#507274]">Compiling...</span>
-              </>
-            ) : (
-              <p className="whitespace-nowrap text-[#5a5a5a]">
-                <span className="leading-[normal]">Save Template </span>
-                <span className="leading-[normal] text-[#8b8b8b]">⌘ S</span>
-              </p>
-            )}
-          </div>
-        </button>
-
-        {/* RUN Button */}
-        <button 
-          onClick={handleRun}
-          className="bg-gradient-to-l from-[#f0b424] h-[43px] px-6 rounded-[6px] shadow-[-4px_-4px_10px_0px_rgba(0,0,0,0.15),0px_4px_4px_0px_rgba(0,0,0,0.25)] to-[#fed141] hover:outline hover:outline-2 hover:outline-[#4066e3] focus:outline focus:outline-2 focus:outline-[#4066e3] transition-all shrink-0"
-        >
-          <div className="flex items-center justify-center font-['Inter:Extra_Bold',sans-serif] font-extrabold h-full not-italic text-[18px] text-black text-center">
-            <p className="whitespace-nowrap">
-              <span className="leading-[normal]">RUN </span>
-              <span className="font-['Inter:Medium',sans-serif] font-medium leading-[normal] not-italic text-[#507274]">⌘ ⏎</span>
-            </p>
-          </div>
-        </button>
-
-        {/* Right Gripper */}
-        <div className="flex items-center h-[43px] shrink-0">
-          <div className="flex h-[37px] items-center justify-center w-[29px]">
-            <div className="-scale-y-100 flex-none rotate-180">
-              <div className="h-[37px] relative w-[29px]">
-                <div className="absolute flex items-center justify-center left-0 size-[24px] top-[6px]">
-                  <div className="-rotate-90 flex-none">
-                    <MeatballsMenu />
-                  </div>
-                </div>
-                <div className="absolute flex items-center justify-center left-[7px] size-[24px] top-[6px]">
-                  <div className="-rotate-90 flex-none">
-                    <MeatballsMenu />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="absolute inset-0 pointer-events-none rounded-[inherit] shadow-[inset_3px_-4px_10px_0px_rgba(0,0,0,0.15),inset_0px_4px_4px_0px_rgba(0,0,0,0.1)]" />
-    </div>
-  );
-}
+// ControlBar removed — superseded by Lit <control-bar> in WritingAreaIndex
 
 export function ResponsivePromptBuilder() {
   const [sections, setSections] = useState([
@@ -2172,7 +2046,7 @@ export function ResponsivePromptBuilder() {
 
       // Add a new selector at the end
       newSections.push({
-        id: `select-role-${nextSelectorId}`,
+        id: `select-role-${Date.now()}`,
         type: 'Select Role'
       });
 
@@ -2413,8 +2287,7 @@ export function ResponsivePromptBuilder() {
         <PromptInputSidebar onDoubleClick={handleToggleCollapse} isCollapsed={isCollapsed} />
       </div>
 
-      {/* Control bar */}
-      <ControlBar isSaving={isSaving} />
+      {/* Control bar — moved to Lit <control-bar> in WritingAreaIndex */}
       
     </div>
   );

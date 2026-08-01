@@ -308,7 +308,7 @@ export class ChatNavigationBar extends LitElement {
       background: none;
       padding: 0;
       border-radius: 4px;
-      transition: background-color 0.15s;
+      /* No transition on background-color - prevents jerky motion during drag */
     }
     .gb:hover {
       background: rgba(255, 255, 255, 0.05);

@@ -50,3 +50,7 @@ uploads/
 
 # Config files with secrets
 config/milvus_export.json
+# App bundles — never commit installed applications
+Cursor.app/
+ZCode.app/
+*.app/

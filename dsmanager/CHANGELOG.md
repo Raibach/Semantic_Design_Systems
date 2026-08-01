@@ -3,6 +3,61 @@
 Built by **John Holt, Raibach Interactive Design Studio** <sub>{impromptu}</sub>
 
 
+## 2026-08-01: React Shell + AI Surface — Honest Architecture Refinement
+
+**The code now tells the truth about what it does.** The previous entries claimed "AI is the Architect" and "AI assembles the FULL surface." That was dishonest. The AI fills slots; it does not create or remove slots. This entry documents the correction of misleading claims, the fix of a real bug (empty Figma spec causing 10s timeouts), and the verbose logging discipline for the dev environment.
+
+### Architectural Clarification: React Shell + AI Surface
+
+The industry pattern is **React Shell + AI Surface**: React handles deterministic UI (routing, nav, auth, error boundaries), AI handles dynamic content generation within slots. This is what NORTHFLANK actually does. The honest description:
+
+- **Slots are the loading contract** — `left | middle | right` are pre-ordered locations for modules
+- **AI fills slots** — it decides which prompt blocks (system, user, tool, agent, custom) go into the left slot
+- **Chat panel (right) is mostly static** — the AI converses there, layout doesn't change
+- **Slots are NOT AI-generated** — the AI did not create the slot framework, it populates it
+- **No visible styling yet** — that is next. Current work is pure AI-native functionality
+
+### What changed
+
+**Misleading comments corrected (4 files):**
+- `WritingAreaIndex.tsx`: Replaced "The AI is the ARCHITECT... NO FALLBACKS" and "STRICT: No caching, no fallbacks — AI ALWAYS assembles" with honest audit documenting that AI controls data, not the component tree/frame
+- `ai-surface-sandbox.ts`: Added honest status on `render()` — slot routing is FIXED (console|workspace|spinner), AI cannot create new surface types
+- `ai.py`: Replaced "AI-GENERATED COMPONENTS" envelope comment with honest status — components are AI-generated, data model shape (left/middle/right) is the slot contract
+- `figma_service.py`: Added caveat on `extract_node_spec()` — returns truthy but useless dict when node has no children
+
+**Bug fixed: empty Figma spec passes truthy check (ai.py):**
+- `extract_node_spec()` returns `{"id":..., "name":..., "type":...}` for dead nodes — truthy but zero design data
+- Previously: `if not figma_spec` passed it through → Z.ai received garbage → 10s timeout
+- Now: checks for `children`, `layout`, or `fills` — rejects empty spec immediately → 503 with specific reason
+- Node `40000717:17091` in file `20UPR2KQMsbAxlo5NJb1se` is dead (48 chars, zero children) — documented in code
+
+**Verbose failure logging (dev environment, zero users):**
+- Backend `ai.py`: 503 errors now include error type, message, Figma file/node ID, timestamp, and FIX instructions
+- Backend `ai.py`: LLM parse failures now log response length, first 500 chars, timestamp
+- Client `WritingAreaIndex.tsx`: `console.error` on timeout includes intent, timeout duration, error name/message, timestamp, CAUSE, and FIX
+- Client `WritingAreaIndex.tsx`: `console.error` on failure includes intent, error type/name/message, stack (5 frames), timestamp, state dump
+- Client `WritingAreaIndex.tsx`: Failure display now shows the real backend 503 detail instead of generic "AI OFFLINE"
+
+**Failure panel added to workspace slot:**
+- When `aiAssemblyFailed=true`, the workspace slot shows the error message in a `<pre>` instead of an empty `<workspace-layout>` shell
+- The error message is no longer trapped in the spinner slot (which disappears when `isAIAssembling` becomes false)
+
+### Files modified
+| File | Change |
+|------|--------|
+| `frontend/src/pages/WritingAreaIndex.tsx` | Honest comments, verbose console.error, failure panel in workspace slot, "AI OFFLINE" → real detail |
+| `frontend/src/components/lit/ai-surface-sandbox.ts` | Honest render() comment — slot routing is fixed |
+| `backend/routes/ai.py` | Empty Figma spec detection, verbose 503 details, verbose parse failure logs, honest envelope comments |
+| `backend/figma_service.py` | Caveat on extract_node_spec() returning truthy-but-useless, dead node documented |
+
+### Not yet done (next milestones)
+- `RESTART-LOCAL.sh` real-time status display
+- File size reduction plan: `WritingAreaIndex.tsx` (2132 lines) needs splitting into React Shell + AI Surface modules
+- Left collapsible vertical nav in the React shell
+- Visual styling pass (separate milestone after functionality is pure AI-native)
+
+---
+
 ## 2026-07-31: A2UI Lit Workspace Migration — React Fallback Removed
 
 **The React `<PromptWorkspace>` fallback is gone.** The composer surface now renders exclusively through the Lit-based `<workspace-layout>` tree that the AI emits via `updateComponents` + `updateDataModel`. No more dual-rendering. No more React competing with Lit for the same DOM slot.

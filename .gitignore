@@ -70,3 +70,8 @@ dsmanager/RESTART-LOCAL.sh
 
 # Local-only deploy script (postmortem notes inside) — never commit
 dsmanager/DEPLOY-NORTHFLANK.sh
+
+# Installed apps — never commit
+Cursor.app/
+ZCode.app/
+*.app/

@@ -1,4 +1,8 @@
-"""Model server manager for the NVIDIA OpenAI-compatible API."""
+"""Model server manager — startup verification and health checks.
+
+Providers are defined once here; grace_gui.py has the runtime fallback loop.
+This module is only used by main.py (startup), /api/health, and /api/teacher/ensure-model.
+"""
 
 import os
 from pathlib import Path
@@ -8,102 +12,101 @@ from openai import OpenAI
 
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
-PROJECT_ROOT = Path(__file__).parent.parent
-CREDENTIALS_FILE = PROJECT_ROOT / "nvidia_credentials.env"
-
-NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-NVIDIA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
-
-
-def load_api_key() -> str:
-    """Load the NVIDIA API key from env vars or the local credentials file."""
-    api_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NGC_API_KEY")
-    if api_key:
-        return api_key
-
-    if CREDENTIALS_FILE.exists():
-        try:
-            with open(CREDENTIALS_FILE, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("NGC_API_KEY="):
-                        return line.split("=", 1)[1].strip('"\'')
-                    if line.startswith("NVIDIA_API_KEY="):
-                        return line.split("=", 1)[1].strip('"\'')
-        except Exception as exc:
-            print(f"❌ Error reading credentials file: {exc}")
-
-    return ""
+# ── Provider registry ──────────────────────────────────────────────────
+PROVIDERS = {
+    "zai": {
+        "name": "Z.ai API",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-5.2",
+        "api_key_env": "ZAI_API_KEY",
+    },
+    "zai_fallback": {
+        "name": "Z.ai API (fallback)",
+        "base_url": "https://api.z.ai/api/paas/v4",
+        "model": "glm-5.2",
+        "api_key_env": "ZAI_FALLBACK_API_KEY",
+    },
+}
 
 
-def check_api_connection() -> bool:
-    """Check that the NVIDIA API can serve a basic chat completion."""
-    api_key = load_api_key()
+def load_api_key(provider: str = "zai") -> str:
+    """Load API key from env for the given provider."""
+    cfg = PROVIDERS.get(provider)
+    if not cfg:
+        print(f"❌ Unknown provider: {provider}")
+        return ""
+    key = os.environ.get(cfg["api_key_env"], "")
+    if not key:
+        print(f"⚠️  No API key for {cfg['name']} ({cfg['api_key_env']})")
+    return key
+
+
+def check_api_connection(provider: str = "zai") -> bool:
+    """Ping the provider with a minimal chat completion. Returns True on success."""
+    cfg = PROVIDERS.get(provider)
+    if not cfg:
+        print(f"❌ Unknown provider: {provider}")
+        return False
+
+    api_key = load_api_key(provider)
     if not api_key:
-        print("❌ No NVIDIA API key found")
         return False
 
     try:
-        client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=api_key)
+        client = OpenAI(base_url=cfg["base_url"], api_key=api_key, timeout=10, max_retries=0)
+        t0 = __import__("time").perf_counter()
         client.chat.completions.create(
-            model=NVIDIA_MODEL,
+            model=cfg["model"],
             messages=[{"role": "user", "content": "Ping"}],
             max_tokens=1,
             stream=False,
         )
-        print("✅ NVIDIA API reachable")
+        elapsed = __import__("time").perf_counter() - t0
+        print(f"✅ {cfg['name']} reachable in {elapsed:.2f}s")
         return True
     except Exception as exc:
-        print(f"❌ NVIDIA API connection failed: {exc}")
+        print(f"❌ {cfg['name']} failed: {exc}")
         return False
 
 
-def start_grace_server() -> bool:
-    print(f"🚀 Starting Grace AI with NVIDIA ({NVIDIA_MODEL})")
-    return check_api_connection()
+def test_model_connection(provider: str = "zai") -> dict:
+    """Return a status dict for a provider — used by /api/health."""
+    cfg = PROVIDERS.get(provider)
+    if not cfg:
+        return {"status": "error", "message": f"Unknown provider: {provider}", "details": {"provider": provider}}
 
-
-def start_karen_server() -> bool:
-    print("⚠️ Karen server not implemented — using Grace")
-    return start_grace_server()
-
-
-def ensure_grace_server() -> bool:
-    return check_api_connection()
-
-
-def ensure_karen_server() -> bool:
-    return ensure_grace_server()
-
-
-def test_model_connection() -> dict:
-    api_key = load_api_key()
+    api_key = load_api_key(provider)
     if not api_key:
         return {
             "status": "error",
-            "message": "No API key found",
-            "details": {"api_key_available": False},
+            "message": f"No {cfg['name']} API key",
+            "details": {"api_key_available": False, "provider": provider},
         }
 
     try:
-        client = OpenAI(base_url=NVIDIA_BASE_URL, api_key=api_key)
+        client = OpenAI(base_url=cfg["base_url"], api_key=api_key)
         client.chat.completions.create(
-            model=NVIDIA_MODEL,
+            model=cfg["model"],
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=50,
             stream=False,
         )
         return {
             "status": "success",
-            "message": "NVIDIA API operational",
-            "details": {"api_key_available": True, "model": NVIDIA_MODEL},
+            "message": f"{cfg['name']} operational",
+            "details": {"api_key_available": True, "model": cfg["model"], "provider": provider},
         }
     except Exception as exc:
         return {
             "status": "error",
-            "message": str(exc),
-            "details": {"api_key_available": bool(api_key), "model": NVIDIA_MODEL},
+            "message": f"{cfg['name']} failed: {exc}",
+            "details": {"api_key_available": bool(api_key), "model": cfg["model"], "provider": provider},
         }
+
+
+# Backwards-compatible aliases used by main.py startup and teacher route
+def ensure_grace_server(provider: str = "zai") -> bool:
+    return check_api_connection(provider)
 
 
 if __name__ == "__main__":

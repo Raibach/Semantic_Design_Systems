@@ -24,7 +24,7 @@ from grace_gui import (
 from agent_rpc_handler import AgentRpcHandler
 from figma_service import (
     get_file, get_file_versions, get_component, get_node,
-    get_dev_resources, search_file,
+    get_dev_resources, search_file, extract_node_spec,
 )
 from milvus_rest import MilvusREST
 
@@ -233,26 +233,98 @@ async def ai_assemble_surface(
                 "message_count": session.get("version_count") or 0,
             })
 
-        ai_message = (
-            "Hello. Your console loaded from PostgreSQL immediately. "
-            f"{len(cards)} package{'s' if len(cards) != 1 else ''} are ready."
-        )
+        # ── TRUE A2UI: Model is the architect for the console surface ──
+        # DB only supplies raw data. The model MUST return the components.
+        # Hard-fail (503) if the model cannot assemble it. No DB skip, no fallbacks.
+        cards_for_prompt = json.dumps(cards)
+        llm_prompt = f"""You are Grace, the A2UI surface assembler for the console.
+
+The user opened the Console. There are {len(cards)} prompt packages.
+
+Card data (bind ConsoleCardGrid to this):
+{cards_for_prompt}
+
+Assemble the FULL console surface using A2UI v0.9.1.
+
+COMPONENT CATALOG (only these):
+- Column (children array)
+- Text (variant: "greeting")
+- ConsoleCardGrid (items: {{"path": "/cards"}})
+
+REQUIREMENTS:
+1. id "root" Column at top
+2. Text greeting with variant "greeting"
+3. ConsoleCardGrid bound to /cards
+4. Short friendly ai_message
+
+Output ONLY this exact JSON (no markdown, no extra text):
+{{
+  "components": [
+    {{"id": "root", "component": "Column", "children": ["header", "card-grid"]}},
+    {{"id": "header", "component": "Text", "text": "greeting", "variant": "greeting"}},
+    {{"id": "card-grid", "component": "ConsoleCardGrid", "items": {{"path": "/cards"}}}}
+  ],
+  "ai_message": "Your message"
+}}
+"""
 
         ms_b = 0.0
         ms_c = 0.0
+        t_b_start = time.perf_counter()
+        llm_response = query_llm(
+            question=llm_prompt,
+            mode="console_assembly",
+            temperature=0.0,
+            prompt_id="surface-assembly-console"
+            # model intentionally omitted — use the enabled provider's default
+        )
+        ms_b = (time.perf_counter() - t_b_start) * 1000
+
+        if not llm_response or not llm_response.strip():
+            raise HTTPException(
+                status_code=503,
+                detail="A2UI FAILURE: AI did not respond. The AI must be active to render this surface."
+            )
+        if llm_response.strip().startswith("Error:"):
+            raise HTTPException(status_code=503, detail=f"A2UI FAILURE: {llm_response.strip()}")
+
+        t_c_start = time.perf_counter()
+        response_text = llm_response.strip()
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        try:
+            parsed = _extract_json_payload(response_text)
+            components = parsed["components"]
+            ai_message = parsed.get("ai_message", f"{len(cards)} packages ready.")
+            if not isinstance(components, list) or len(components) == 0:
+                raise ValueError("components must be non-empty array")
+            ms_c = (time.perf_counter() - t_c_start) * 1000
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            print(
+                f"[A2UI Console] AI RESPONSE PARSE FAILED:\n"
+                f"  error_type: {type(e).__name__}\n"
+                f"  error_message: {e}\n"
+                f"  llm_response_length: {len(response_text)}\n"
+                f"  llm_response_first_500: {response_text[:500]}\n"
+                f"  timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
+                f"  FIX: The LLM returned something that isn't valid A2UI JSON. Check the prompt or the model."
+            )
+            raise HTTPException(
+                status_code=503, 
+                detail=f"A2UI FAILURE: AI returned invalid JSON for render-console — {type(e).__name__}: {str(e)}. Raw (first 300 chars): {response_text[:300]}"
+            )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
-        print(f"🚨 [A2UI PERF] Console: {len(cards)} cards in {elapsed_ms}ms (DB:{ms_a:.1f}ms AI:{ms_b:.1f}ms Parse:{ms_c:.1f}ms)")
+        print(f"\n{'='*60}")
+        print(f"[PERF TRACE] POST /api/ai/assemble-surface | intent=render-console | total={elapsed_ms}ms")
+        print(f"  Milestone A (Database): {ms_a:8.1f}ms")
+        print(f"  Milestone B (LLM):      {ms_b:8.1f}ms")
+        print(f"  Milestone C (Parse):    {ms_c:8.1f}ms")
+        print(f"{'='*60}\n")
 
-        # ═══════════════════════════════════════════════════════════════
-        # A2UI v0.9 ENVELOPE RESPONSE
-        # Array of protocol messages: createSurface, updateComponents, updateDataModel
-        # ═══════════════════════════════════════════════════════════════
-        components = [
-            {"id": "root", "component": "Column", "children": ["header", "card-grid"]},
-            {"id": "header", "component": "Text", "text": ai_message, "variant": "greeting"},
-            {"id": "card-grid", "component": "ConsoleCardGrid", "items": {"path": "/cards"}}
-        ]
         validate_a2ui_components(components)
         return [
             {
@@ -277,7 +349,7 @@ async def ai_assemble_surface(
                     "value": {
                         "cards": cards,
                         "assembly_time_ms": elapsed_ms,
-                        "llm_used": False,
+                        "llm_used": True,
                         "ai_message": ai_message
                     }
                 }
@@ -288,79 +360,83 @@ async def ai_assemble_surface(
     # INTENT: render-composer (blank workspace)
     # ═══════════════════════════════════════════════════════════════
     elif intent == "render-composer":
-        # TRUE A2UI: AI assembles the FULL surface (components + data)
-        # NO hardcoded structure, NO default values, NO error suppression
-        
-        # Milestone A: DB call to create draft package FIRST
-        # If this fails, the surface FAILS - no suppression
+        # ── HONEST STATUS (2026-08-01): ──
+        # TRUE:  AI decides the data payload (sections, title, message).
+        # TRUE:  On failure, returns 503 — no fake fallback. Correct.
+        # NOT TRUE YET: "AI assembles the FULL surface" — the envelope
+        #   hardcodes left_column / middle_column / right_column shape.
+        #   AI cannot decide "this task needs 4 columns" or "skip the
+        #   output viewer." It can only populate data into a fixed frame.
+        # DISCOVERY GOAL: AI should emit the component tree itself
+        #   (which components, in what arrangement) from the Figma spec.
         ms_a = 0.0
-        t_a_start = time.perf_counter()
-        
-        if not state.prompt_sessions_api:
+
+        # Fetch live Figma spec for the composer surface.
+        # NOTE: node ID "40000717:17091" is HARDCODED and currently
+        # returns an empty spec (48 chars, zero children). This is the
+        # root cause of composer assembly failures. The node may have
+        # been deleted or moved in the Figma file. Fix: verify the
+        # correct node ID or make it configurable.
+        FIGMA_FILE_KEY = "20UPR2KQMsbAxlo5NJb1se"
+        FIGMA_NODE_ID = "40000717:17091"
+        figma_spec = None
+        figma_error_detail = None
+        try:
+            raw = get_node(FIGMA_FILE_KEY, FIGMA_NODE_ID)
+            if raw and raw.get("error"):
+                figma_error_detail = f"Figma API error: {raw['error']}"
+            elif raw:
+                figma_spec = extract_node_spec(raw)
+                # extract_node_spec returns {"id":..., "name":..., "type":...}
+                # even for empty/dead nodes. Check for actual design data:
+                if not figma_spec.get("children") and not figma_spec.get("layout") and not figma_spec.get("fills"):
+                    figma_error_detail = (
+                        f"Figma node {FIGMA_NODE_ID} returned EMPTY spec "
+                        f"(no children, no layout, no fills). The node may have been "
+                        f"deleted or moved in file {FIGMA_FILE_KEY}. "
+                        f"Spec keys received: {list(figma_spec.keys())}"
+                    )
+                    figma_spec = None  # Treat as missing — don't send garbage to the LLM
+        except Exception as e:
+            figma_error_detail = f"Figma fetch exception: {e}"
+            import traceback
+            print(f"[A2UI Composer] Figma fetch EXCEPTION:\n  type: {type(e).__name__}\n  message: {e}\n  traceback:\n{traceback.format_exc()}")
+
+        if not figma_spec:
+            print(
+                f"[A2UI Composer] ASSEMBLY BLOCKED — no Figma spec:\n"
+                f"  file_key: {FIGMA_FILE_KEY}\n"
+                f"  node_id: {FIGMA_NODE_ID}\n"
+                f"  reason: {figma_error_detail or 'Figma spec is None'}\n"
+                f"  timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
+                f"  FIX: Verify the Figma node ID exists and has children/layout/fills."
+            )
             raise HTTPException(
                 status_code=503,
-                detail="A2UI FAILURE: Database not available - cannot create draft package"
+                detail=f"A2UI FAILURE: Cannot assemble composer — {figma_error_detail or 'Figma spec is None'}. Figma is the source of truth for surface layout."
             )
-        
-        # Pre-create draft with temporary title (AI will provide real title)
-        draft = state.prompt_sessions_api.create_session(
-            user_id=uid,
-            title="New Prompt (AI assembling...)",
-            description="Draft package — created on composer mount",
-        )
-        if not draft or not draft.get("id"):
-            raise HTTPException(
-                status_code=503,
-                detail="A2UI FAILURE: Draft package creation failed - database error"
-            )
-        
-        draft_session_id = str(draft["id"])
-        state.prompt_sessions_api.update_session(
-            session_id=draft_session_id,
-            user_id=uid,
-            metadata={"draft": True, "created_via": "render-composer"},
-        )
-        ms_a = (time.perf_counter() - t_a_start) * 1000
-        print(f"[A2UI Surface] Draft package created: {draft_session_id}")
 
-        # Call AI to assemble the FULL composer surface
-        # AI must generate: components (adjacency list), greeting, title, initial sections
-        llm_prompt = f"""You are Grace, the A2UI surface assembler for a prompt engineering workspace.
+        figma_json = json.dumps(figma_spec)[:8000]  # keep prompt size reasonable
 
-The user clicked "Composer" to create a new prompt package.
+        llm_prompt = f"""You are Grace, the A2UI surface assembler.
 
-Assemble the complete composer surface using the A2UI v0.9.1 protocol.
+Figma design spec (source of truth — derive every element, layout, panel, and binding from this):
+{figma_json}
 
-COMPONENT CATALOG (components you can use):
-- Column: container with children array
-- SectionEditor: prompt section editor (requires sections path)
-- CompiledOutput: output viewer (requires content path)
-- ChatPanel: chat interface (requires conversationId path)
-- Text: text display (with variant: greeting for welcome messages)
+The user clicked "Composer". Assemble the FULL surface using A2UI v0.9.1.
 
-REQUIREMENTS:
-1. Create adjacency-list components with id "root" at top
-2. Use 3-column layout: SectionEditor, CompiledOutput, ChatPanel
-3. Include welcome Text component with variant="greeting"
-4. Suggest 2-3 initial prompt sections (system, user, etc.)
-5. Generate friendly greeting (1-2 sentences)
-6. Create creative title for the new prompt
+Derive:
+- All components and their exact hierarchy from the Figma spec
+- The right side panel (Resources, Variables, Efficiency, etc.) exactly as shown
+- Data bindings for sections, output, chat
+- Initial sections, title, greeting
 
-Output ONLY this exact JSON structure (no markdown fences):
+Output ONLY valid JSON (no markdown):
 {{
-  "components": [
-    {{"id": "root", "component": "Column", "children": ["greeting", "workspace"]}},
-    {{"id": "greeting", "component": "Text", "text": "Your greeting here", "variant": "greeting"}},
-    {{"id": "workspace", "component": "Column", "children": ["left-col", "middle-col", "right-col"]}},
-    {{"id": "left-col", "component": "SectionEditor", "sections": {{"path": "/session/left_column/sections"}}}},
-    {{"id": "middle-col", "component": "CompiledOutput", "content": {{"path": "/session/middle_column/compiled_output"}}}},
-    {{"id": "right-col", "component": "ChatPanel", "conversationId": {{"path": "/session/right_column/conversation_id"}}}}
-  ],
-  "initial_sections": [
-    {{"name": "Section name", "type": "system|user|tool|context", "content": "", "position": 0}}
-  ],
-  "suggested_title": "Creative title",
-  "ai_message": "Greeting for data model"
+  "components": [ ... adjacency list derived from Figma ... ],
+  "initial_sections": [ ... ],
+  "suggested_title": "...",
+  "ai_message": "..."
 }}"""
 
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
@@ -371,8 +447,8 @@ Output ONLY this exact JSON structure (no markdown fences):
             question=llm_prompt,
             mode="surface_assembly",
             temperature=0.0,
-            prompt_id="surface-assembly-composer",
-            model="nvidia/nemotron-3-ultra-550b-a55b"
+            prompt_id="surface-assembly-composer"
+            # model intentionally omitted — use the enabled provider's default (e.g. glm-5.2 via Z.ai)
         )
         ms_b = (time.perf_counter() - t_b_start) * 1000
 
@@ -415,19 +491,22 @@ Output ONLY this exact JSON structure (no markdown fences):
                 
             ms_c = (time.perf_counter() - t_c_start) * 1000
         except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
-            print(f"[A2UI Composer] AI response parse FAILED: {e}")
-            print(f"[A2UI Composer] Raw response: {response_text[:500]}")
+            print(
+                f"[A2UI Composer] AI RESPONSE PARSE FAILED:\n"
+                f"  error_type: {type(e).__name__}\n"
+                f"  error_message: {e}\n"
+                f"  llm_response_length: {len(response_text)}\n"
+                f"  llm_response_first_500: {response_text[:500]}\n"
+                f"  timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
+                f"  FIX: The LLM returned something that isn't valid A2UI JSON. Check the prompt or the model."
+            )
             raise HTTPException(
                 status_code=503, 
-                detail=f"A2UI FAILURE: AI returned invalid JSON - {str(e)}"
+                detail=f"A2UI FAILURE: AI returned invalid JSON for render-composer — {type(e).__name__}: {str(e)}. Raw (first 300 chars): {response_text[:300]}"
             )
 
-        # Update draft title with AI suggestion
-        state.prompt_sessions_api.update_session(
-            session_id=draft_session_id,
-            user_id=uid,
-            title=suggested_title
-        )
+        # No DB update here. suggested_title lives in the in-memory data model only.
+        # Real title + session creation happens on explicit Save via /ai/save-surface.
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -441,8 +520,15 @@ Output ONLY this exact JSON structure (no markdown fences):
         print(f"{'='*60}\n")
 
         # ═══════════════════════════════════════════════════════════════
-        # A2UI v0.9.1 ENVELOPE RESPONSE - AI-GENERATED COMPONENTS
-        # Array of protocol messages: createSurface, updateComponents, updateDataModel
+        # A2UI v0.9.1 ENVELOPE RESPONSE
+        # HONEST STATUS (2026-08-01):
+        #   - components list: AI-generated (which prompt blocks, which data)
+        #   - Data model SHAPE: slot contract is FIXED (left/middle/right)
+        #     because slots are the foundational loading framework.
+        #     The AI fills slots; it does not create or remove slots.
+        #   - Sections within left_column: AI-generated (the prompt blocks)
+        #   - Per owner: slots are pure AI-native loading contract.
+        #     Scaling features = slot them in. No visible styling yet.
         # ═══════════════════════════════════════════════════════════════
         
         # Validate AI-generated components against catalog
@@ -470,12 +556,12 @@ Output ONLY this exact JSON structure (no markdown fences):
                     "path": "/",
                     "value": {
                         "session": {
-                            "id": draft_session_id,
+                            "id": None,  # in-memory only until explicit Save
                             "title": suggested_title,  # AI-generated
                             "is_unsaved": True,
-                            "left_column": {"sections": initial_sections},  # AI-generated
-                            "middle_column": {"compiled_output": ""},
-                            "right_column": {"conversation_id": None},
+                            "left_column": {"sections": initial_sections},  # slot contract (fixed), sections are AI-generated
+                            "middle_column": {"compiled_output": ""},      # slot contract (fixed)
+                            "right_column": {"conversation_id": None},      # slot contract (fixed), chat is mostly static
                         },
                         "ai_message": ai_message,  # AI-generated
                         "grace_greeting": True,
@@ -526,10 +612,61 @@ Output ONLY this exact JSON structure (no markdown fences):
         except:
             pass
 
-        # Call LLM to generate contextual greeting
-        llm_prompt = f"""You are Grace, the AI assistant. The user is opening their saved session: "{session.get('title')}".
-Generate a brief, friendly message welcoming them back (1 sentence max).
-Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
+        # Fetch actual conversation messages (for ChatPanel history on mount)
+        messages = []
+        conv_id = session.get("conversation_id")
+        if conv_id and state.conversation_api:
+            try:
+                messages = state.conversation_api.get_messages(str(conv_id), uid, limit=200)
+            except Exception as e:
+                print(f"[A2UI Surface] Messages fetch warning: {e}")
+
+        # ── TRUE A2UI: MODEL IS THE ARCHITECT ──
+        # DB supplies the data. The model MUST return the components (adjacency list).
+        # Hard-fail (503) if the model cannot assemble the surface structure.
+        # No hardcoded components. No greeting-only shortcut.
+        session_info = {
+            "title": session.get("title"),
+            "sections_count": len(sections),
+            "has_compiled": bool(session.get("compiled_output")),
+            "milvus_count": len(milvus_versions),
+            "message_count": len(messages),
+        }
+        llm_prompt = f"""You are Grace, the A2UI surface assembler.
+
+User is loading saved session: "{session.get('title') or 'Untitled'}".
+
+Data summary:
+{json.dumps(session_info)}
+
+Assemble the FULL surface with A2UI v0.9.1.
+
+CATALOG (use these):
+- Column (children)
+- prompt-section-editor (sections: {{"path": "/session/left_column/sections"}})
+- compiled-output-viewer (content: {{"path": "/session/middle_column/compiled_output"}})
+- chat-panel (conversationId: {{"path": "/session/right_column/conversation_id"}})
+- Text (variant: "greeting")
+- workspace-layout (resizable host for the three panes)
+
+REQUIREMENTS:
+1. id "root" Column
+2. 3-column workspace layout
+3. Bind editors to the paths above
+4. Short ai_message
+
+Output ONLY this JSON (no markdown):
+{{
+  "components": [
+    {{"id": "root", "component": "Column", "children": ["workspace"]}},
+    {{"id": "workspace", "component": "workspace-layout", "children": ["left-col", "middle-col", "right-col"]}},
+    {{"id": "left-col", "component": "prompt-section-editor", "sections": {{"path": "/session/left_column/sections"}}}},
+    {{"id": "middle-col", "component": "compiled-output-viewer", "content": {{"path": "/session/middle_column/compiled_output"}}}},
+    {{"id": "right-col", "component": "chat-panel", "conversationId": {{"path": "/session/right_column/conversation_id"}}}}
+  ],
+  "ai_message": "Welcome back..."
+}}
+"""
 
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
         ms_b = 0.0
@@ -537,10 +674,10 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
         t_b_start = time.perf_counter()
         llm_response = query_llm(
             question=llm_prompt,
-            mode="console_assembly",
+            mode="surface_assembly",
             temperature=0.0,
-            prompt_id="surface-assembly-session",
-            model="nvidia/nemotron-3-ultra-550b-a55b"
+            prompt_id="surface-assembly-session"
+            # model intentionally omitted — use the enabled provider's default
         )
         ms_b = (time.perf_counter() - t_b_start) * 1000
 
@@ -562,10 +699,18 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
 
         try:
             parsed = _extract_json_payload(response_text)
-            ai_message = parsed["ai_message"]
+            components = parsed["components"]
+            ai_message = parsed.get("ai_message", "Welcome back to your session.")
+            if not isinstance(components, list) or len(components) == 0:
+                raise ValueError("components must be non-empty array")
             ms_c = (time.perf_counter() - t_c_start) * 1000
-        except (json.JSONDecodeError, ValueError, KeyError, TypeError):
-            raise HTTPException(status_code=503, detail="A2UI FAILURE: AI returned invalid JSON")
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            print(f"[A2UI Session] AI response parse FAILED: {e}")
+            print(f"[A2UI Session] Raw response: {response_text[:500]}")
+            raise HTTPException(
+                status_code=503, 
+                detail=f"A2UI FAILURE: AI returned invalid JSON - {str(e)}"
+            )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -579,15 +724,8 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
         print(f"{'='*60}\n")
 
         # ═══════════════════════════════════════════════════════════════
-        # A2UI v0.9 ENVELOPE RESPONSE
-        # Array of protocol messages: createSurface, updateComponents, updateDataModel
+        # A2UI v0.9.1 ENVELOPE RESPONSE - AI-GENERATED COMPONENTS
         # ═══════════════════════════════════════════════════════════════
-        components = [
-            {"id": "root", "component": "Column", "children": ["left-col", "middle-col", "right-col"]},
-            {"id": "left-col", "component": "SectionEditor", "sections": {"path": "/session/left_column/sections"}},
-            {"id": "middle-col", "component": "CompiledOutput", "content": {"path": "/session/middle_column/compiled_output"}},
-            {"id": "right-col", "component": "ChatPanel", "conversationId": {"path": "/session/right_column/conversation_id"}}
-        ]
         validate_a2ui_components(components)
         return [
             {
@@ -623,6 +761,7 @@ Output ONLY valid JSON: {{"ai_message": "Your message"}}"""
                             },
                             "right_column": {
                                 "conversation_id": str(session.get("conversation_id")) if session.get("conversation_id") else None,
+                                "messages": messages,
                             },
                         },
                         "milvus": {

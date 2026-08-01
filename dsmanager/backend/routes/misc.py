@@ -96,6 +96,57 @@ async def api_health():
     if not milvus_ok:
         critical_failures.append("milvus")
 
+    # ── Z.ai GLM-5.2 check (primary + fallback) ──
+    zai_ok = False
+    zai_error = None
+    zai_fallback_ok = False
+    try:
+        import os
+        from model_server_manager import test_model_connection
+        zai_key = os.getenv("ZAI_API_KEY")
+        if zai_key:
+            result = test_model_connection("zai")
+            zai_ok = result.get("status") == "success"
+            if not zai_ok:
+                zai_error = result.get("message", "unknown error")
+        else:
+            zai_error = "ZAI_API_KEY not set"
+        # Check fallback endpoint
+        if os.getenv("ZAI_FALLBACK_API_KEY"):
+            fb = test_model_connection("zai_fallback")
+            zai_fallback_ok = fb.get("status") == "success"
+    except Exception as e:
+        zai_error = str(e)[:80]
+    health_data["checks"]["zai"] = "connected" if zai_ok else ("fallback" if zai_fallback_ok else "DISCONNECTED")
+    if zai_error and not zai_ok:
+        health_data["checks"]["zai_detail"] = zai_error
+    if not zai_ok and not zai_fallback_ok:
+        critical_failures.append("zai")
+
+    # ── Figma API check (design spec extraction) ──
+    figma_ok = False
+    figma_error = None
+    try:
+        import os
+        figma_token = os.getenv("FIGMA_TOKEN")
+        if figma_token:
+            import urllib.request
+            req = urllib.request.Request(
+                "https://api.figma.com/v1/me",
+                headers={"X-Figma-Token": figma_token}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                figma_ok = resp.status == 200
+        else:
+            figma_error = "FIGMA_TOKEN not set"
+    except Exception as e:
+        figma_error = str(e)[:80]
+    health_data["checks"]["figma"] = "connected" if figma_ok else "DISCONNECTED"
+    if figma_error and not figma_ok:
+        health_data["checks"]["figma_detail"] = figma_error
+    # Figma is important but not critical enough to degrade overall status
+    # (A2UI can still assemble surfaces from catalog without live Figma)
+
     # ── Overall status ──
     if critical_failures:
         health_data["status"] = "degraded"

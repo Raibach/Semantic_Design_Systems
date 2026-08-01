@@ -35,6 +35,7 @@ export default defineConfig({
   },
   server: {
     host: true,
+    port: 5001,           // explicit — local site is 5001 (backend serves UI)
     hmr: false,
     allowedHosts: [
       'localhost',

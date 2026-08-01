@@ -155,8 +155,13 @@ export default function LeftColumnHeader({
       data-ui-id="main-header-frame"
       data-ui-type="layout"
       data-ui-description="Main header frame — branding, nav, and prompt management controls"
-      className="w-full flex-shrink-0 flex flex-col"
-      style={{ borderBottom: "1px solid rgba(0,0,0,0.12)" }}
+      className="flex flex-col"
+      style={{ 
+        flexShrink: 0,
+        minHeight: '56px',
+        maxHeight: '100vh',
+        borderBottom: "1px solid rgba(0,0,0,0.12)"
+      }}
     >
       {/* ════════════════════════════════════════════════════════════
           ROW 1: Brand / Navigation bar (golden/amber background)

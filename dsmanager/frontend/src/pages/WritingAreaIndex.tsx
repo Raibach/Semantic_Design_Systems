@@ -9,7 +9,7 @@ import {
 } from "@/services/conversationStorage";
 // TODO: Legacy reference cleanup — module no longer exists at this path
 // import TeacherEditorChat from "@/components/TeacherChat/TeacherEditorChat";
-import { PromptWorkspace } from "@/components/PromptWorkspace";
+// PromptWorkspace import removed — replaced by model-driven Lit tree (prompt-section-editor + compiled-output-viewer + workspace-layout) inside slot="workspace"
 // import QuarantinePanel from "@/components/QuarantinePanel"; // Excluded from production
 // MyStoryEditor + SaveProjectModal imports removed — components are retired
 // TODO: Legacy reference cleanup — module no longer exists at this path
@@ -78,6 +78,10 @@ export default function Index({
   const consoleChatContainerRef = useRef<HTMLDivElement>(null);
   const isSidebarDraggingRef = useRef(false);
   const isConsoleChatCollapsed = consoleChatWidth <= COLLAPSED_WIDTH;
+  const promptSectionEditorRef = useRef<any>(null);
+
+  // Composer-specific running state (controls middle column visibility during Run)
+  const [isComposerRunning, setIsComposerRunning] = useState(false);
 
   // ── Request deduplication: abort previous request if new one comes in ──
   const consoleAssemblyControllerRef = useRef<AbortController | null>(null);
@@ -92,14 +96,76 @@ export default function Index({
     sessionName?: string;
   }>({ isLoading: false, progress: 0, error: null });
 
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // INTERSTITIAL LOADING — AI-NATIVE BEST PRACTICE
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // The 10-second loading floor is NOT a bug — it's a feature.
+  // During that time, the interstitial communicates with the user:
+  //   - What the AI is doing right now
+  //   - What A2UI is (educational)
+  //   - What happens next
+  // This is the AI-native pattern: loading time IS communication time.
+  // Games do this. Slack does this. Now we do this.
+  // ═══════════════════════════════════════════════════════════════════════════════
+  const INTERSTITIAL_MIN_MS = 10_000; // 10-second floor — user sees the full message sequence
+  const INTERSTITIAL_TICK_MS = 2_200; // Time between message rotations
+
+  // Interstitial messages: rotate every ~2.2s during the 10s load.
+  // Each message is a step in the communication layer.
+  // The user learns what's happening, what A2UI is, and what to expect.
+  const INTERSTITIAL_MESSAGES = [
+    "Connecting to Grace...",
+    "Reading your Figma design spec...",
+    "Grace is analyzing the layout structure...",
+    "Matching design tokens to components...",
+    "Building the A2UI surface — slots first, then content...",
+    "In A2UI, the React Shell is always visible. AI fills the slots.",
+    "Grace is choosing which prompt blocks go where...",
+    "Assembling your console cards...",
+    "Almost there — Grace is doing final quality checks...",
+    "Surface ready. Welcome to A2UI.",
+  ];
+
   // ── AI Assembly state ──
   // The header tabs are AI COMMANDS, not webpage links.
   // When user clicks Console, AI assembles the console surface.
-  // STRICT A2UI: If AI fails, the surface CANNOT render - NO FALLBACKS
+  // If AI fails, the surface shows the failure — NO FAKE RENDERING.
   const [isAIAssembling, setIsAIAssembling] = useState(false);
   const [aiAssemblyMessage, setAiAssemblyMessage] = useState("Assembling your console...");
   const [aiAssemblyFailed, setAiAssemblyFailed] = useState(false); // STRICT: blocks rendering when true
   const [assembledConsoleCards, setAssembledConsoleCards] = useState<any[] | null>(null); // null = not loaded, [] would be fallback
+
+  // ── Interstitial rotation state ──
+  // Tracks which message in the INTERSTITIAL_MESSAGES sequence is currently shown.
+  // Rotates forward every INTERSTITIAL_TICK_MS while isAIAssembling is true.
+  const [interstitialIndex, setInterstitialIndex] = useState(0);
+
+  // ── Pending result from fast AI response ──
+  // If the AI responds in <10s, we hold the result here and only apply it
+  // after the interstitial floor is reached. The user sees the full message
+  // sequence, and the surface appears at the end of the sequence — not before.
+  const pendingResultRef = useRef<{
+    resolve: (value: void) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  // ── Interstitial rotation effect ──
+  // While isAIAssembling is true, rotate through the message sequence
+  // every INTERSTITIAL_TICK_MS. When assembly stops, reset to 0.
+  useEffect(() => {
+    if (!isAIAssembling) {
+      setInterstitialIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setInterstitialIndex(prev => {
+        const next = prev + 1;
+        // Don't go past the last message — hold on it until assembly finishes
+        return next >= INTERSTITIAL_MESSAGES.length ? prev : next;
+      });
+    }, INTERSTITIAL_TICK_MS);
+    return () => clearInterval(interval);
+  }, [isAIAssembling]);
 
   const [_rightColumnView, _setRightColumnView] = useState<"chat" | "trace">("chat"); // Chat = TeacherEditorChat, Trace = SCE panel
   const [_isPromptPortalOpen, _setIsPromptPortalOpen] = useState<boolean>(false); // Show prompt portal in first column
@@ -123,7 +189,8 @@ export default function Index({
   // Ref for currentPromptSession ID — avoids stale closure in event listeners
   const currentPromptSessionRef = useRef<string | null>(null);
   // Ref for handleSavePrompt — always points to latest function, used by event listeners
-  const handleSavePromptRef = useRef<() => Promise<void>>(async () => {});
+  // Accepts optional compiledOutput + optional sections (from Lit editor) so Save after Run persists full state.
+  const handleSavePromptRef = useRef<(compiledOutput?: string, providedSections?: any[]) => Promise<void>>(async () => {});
   // Tracks whether the user has unsaved changes since the last save.
   // Used to suppress the exit confirmation when the user just saved.
   const hasUnsavedChangesRef = useRef(false);
@@ -490,7 +557,7 @@ export default function Index({
     await assembleSurfaceWithAI('render-composer');
   };
 
-  const handleSavePrompt = async (compiledOutput?: string) => {
+  const handleSavePrompt = async (compiledOutput?: string, providedSections?: any[]) => {
     console.log('🔵 [SAVE] Save button clicked! Current session:', currentPromptSession?.id);
     // Serialization guard: prevent concurrent save operations
     if (isSavingRef.current) {
@@ -508,111 +575,42 @@ export default function Index({
     window.dispatchEvent(new CustomEvent('save-template-start'));
 
     try {
-      // ── Collect ALL sections from textareas by name, including empty ones ──
-      // No required roles for Save Template - we capture everything as-is
-      const allSections: { name: string; content: string; el: HTMLTextAreaElement }[] = [];
+      let allSections: { name: string; content: string }[] = [];
 
-      // CRITICAL FIX: Force React to flush any pending state updates to DOM before querying
-      // This ensures controlled components have synchronized their state
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      // DEBUG: Show all textareas in the DOM
-      console.log('🔍 [SAVE DEBUG] All textareas in DOM:', document.querySelectorAll('textarea').length);
-      document.querySelectorAll('textarea').forEach((ta, i) => {
-        console.log(`  Textarea ${i}:`, {
-          'data-section-name': ta.getAttribute('data-section-name'),
-          'aria-label': ta.getAttribute('aria-label'),
-          'placeholder': ta.getAttribute('placeholder'),
-          'value': ta.value.substring(0, 30),
-          'parent data-section-name': ta.closest('[data-section-name]')?.getAttribute('data-section-name')
-        });
-      });
-
-      // ══════════════════════════════════════════════════════════════════════
-      // COLLECT SECTION CONTENT FROM REACT STATE
-      // Uses event system to get current values from controlled components
-      // ══════════════════════════════════════════════════════════════════════
-
-      const collectedSections: { name: string; content: string }[] = [];
-      const collectPromise = new Promise<void>((resolve) => {
-        const handleCollectResponse = (e: CustomEvent) => {
-          const { sectionName, content } = e.detail;
-          if (sectionName && typeof content === 'string') {
-            // Avoid duplicates
-            if (!collectedSections.find(s => s.name === sectionName)) {
-              collectedSections.push({ name: sectionName, content });
-              console.log(`📝 [SAVE] Collected from React state: "${sectionName}" = "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`);
-            }
-          }
-        };
-
-        window.addEventListener('prompt-section-response' as any, handleCollectResponse as any);
-
-        // Request content from all sections
-        console.log('📤 [SAVE] Dispatching collect-prompt-sections event...');
-        window.dispatchEvent(new CustomEvent('collect-prompt-sections'));
-
-        // Wait for responses - increased timeout for reliability
-        setTimeout(() => {
-          window.removeEventListener('prompt-section-response' as any, handleCollectResponse as any);
-          console.log(`📥 [SAVE] Collection complete. Got ${collectedSections.length} sections via events.`);
-          resolve();
-        }, 200); // Increased from 50ms to 200ms for reliability
-      });
-
-      await collectPromise;
-
-      // ALWAYS also check DOM as backup - merge both sources
-      console.log('🔍 [SAVE] Also checking DOM for textareas...');
-      document.querySelectorAll('textarea[data-section-name]').forEach((el) => {
-        const ta = el as HTMLTextAreaElement;
-        const name = ta.getAttribute('data-section-name') || '';
-        if (!name) return;
-
-        // Check if we already got this section via events
-        const existingFromEvent = collectedSections.find(s => s.name === name);
-
-        if (existingFromEvent) {
-          // Prefer React state if available, but log if they differ
-          if (existingFromEvent.content !== ta.value) {
-            console.log(`⚠️ [SAVE] Content mismatch for "${name}": React="${existingFromEvent.content.length}chars" vs DOM="${ta.value.length}chars" - using React state`);
-          }
-          allSections.push({ name, content: existingFromEvent.content, el: ta });
-        } else {
-          // Fallback to DOM value if not collected via events
-          console.log(`📝 [SAVE] Using DOM value for "${name}": "${ta.value.substring(0, 50)}${ta.value.length > 50 ? '...' : ''}"`);
-          allSections.push({ name, content: ta.value, el: ta });
-        }
-      });
-
-      console.log('📦 [SAVE] Total sections captured:', {
-        count: allSections.length,
-        sections: allSections.map(s => `${s.name}(${s.content.length}chars)`)
-      });
-
-      // ══════════════════════════════════════════════════════════════════════
-      // SAVE TEMPLATE = CAPTURE ENTIRE SURFACE STATE (NO VALIDATION)
-      // Validation only happens on RUN, not on Save Template.
-      // Empty sections are valid state - we capture everything as-is.
-      // ══════════════════════════════════════════════════════════════════════
+      if (providedSections && providedSections.length > 0) {
+        // ══════════════════════════════════════════════════════════════════════
+        // ONLY PATH: sections from the Lit <prompt-section-editor>.
+        // The Lit editor is the source of truth — it owns the shadow DOM textareas.
+        // Both save-template and save-requested events pass sections here.
+        // ══════════════════════════════════════════════════════════════════════
+        allSections = providedSections.map((s: any) => ({
+          name: s.name || s.section || s.role || s.type || 'Section',
+          content: s.content || ''
+        }));
+        console.log('📦 [SAVE] Using sections from Lit editor:', allSections.length);
+      } else {
+        // ── NO SECTIONS: The Lit editor ref is empty or not mounted.
+        // This means the composer surface hasn't loaded yet — bail out.
+        console.warn('⚠️ [SAVE] No sections available — Lit editor not mounted or empty. Aborting save.');
+        window.dispatchEvent(new CustomEvent('a2ui:system-message', {
+          detail: { role: 'assistant', content: '⚠️ Nothing to save — the composer has no sections yet.' }
+        }));
+        isSavingRef.current = false;
+        setIsSavingPrompt(false);
+        window.dispatchEvent(new CustomEvent('save-template-end'));
+        return;
+      }
 
       // Build sections array - include ALL sections, even empty ones
-      // This is a "photograph" of the surface state at this moment
-      const sections: PromptSection[] = [];
-      let position = 0;
-      for (const s of allSections) {
-        sections.push({
-          id: crypto.randomUUID?.() || s.name,
-          type: s.name as PromptSection['type'],
-          content: s.content, // Keep content exactly as-is, including whitespace
-          // Future: position: position++ for ordering
-        });
-      }
+      const sections: PromptSection[] = allSections.map((s, index) => ({
+        id: crypto.randomUUID?.() || s.name,
+        type: s.name as PromptSection['type'],
+        content: s.content,
+      }));
 
       console.log('📸 [SAVE] Capturing surface state:', {
         totalSections: sections.length,
         sectionNames: sections.map(s => s.type),
-        contentLengths: sections.map(s => `${s.type}: ${s.content.length} chars`)
       });
 
       // ══════════════════════════════════════════════════════════════════════
@@ -688,10 +686,29 @@ export default function Index({
 
       hasUnsavedChangesRef.current = false;
       await loadPromptSessions();
-      setConsoleRefreshKey(k => k + 1);
+
+      // If user is on console, re-assemble to show updated cards.
+      // If on composer, just update the session state (already done above).
+      if (headerTab === 'console') {
+        assembleSurfaceWithAI('render-console');
+      }
+
+      // ✅ Toast: save succeeded
+      toast({
+        title: "Template saved",
+        description: result.ai_message || `Saved with ${allSections.length} sections`,
+        duration: 3000,
+      });
     } catch (error) {
       console.error('❌ [CRUD] Save failed:', error);
       const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      // ✅ Toast: save failed
+      toast({
+        title: "Save failed",
+        description: errMsg,
+        variant: "destructive",
+        duration: 5000,
+      });
       window.dispatchEvent(new CustomEvent('a2ui:system-message', {
         detail: { role: 'assistant', content: `⚠️ Save failed: ${errMsg}` }
       }));
@@ -713,9 +730,12 @@ export default function Index({
   useEffect(() => {
     if (!currentPromptSession) return;
 
-    // <save-button/> → save
+    // <save-button/> → save (reads sections from Lit editor ref)
     const unsubSave = eventBus.on('save-button', () => {
-      handleSavePromptRef.current();
+      const editor = promptSectionEditorRef.current as any;
+      const sections = (editor && (editor._sections || editor.sections)) || [];
+      const compiledOutput = currentPromptSession?.compiledOutput || '';
+      handleSavePromptRef.current?.(compiledOutput, sections);
     });
 
     // <prompt-section type="..." content="..."> → insert section
@@ -801,20 +821,14 @@ export default function Index({
       return;
     }
     if (!currentPromptSession?.id) {
-      // No session with a valid ID — create one first with the new title
-      const sections: PromptSection[] = [];
-      document.querySelectorAll('textarea[data-section-name]').forEach((el) => {
-        const ta = el as HTMLTextAreaElement;
-        const name = ta.getAttribute('data-section-name') || '';
-        const content = ta.value?.trim();
-        if (name && content) {
-          sections.push({ id: crypto.randomUUID?.() || name, type: name as PromptSection['type'], content });
-        }
-      });
+      // No session with a valid ID — create one via the AI save pipeline
+      // (reads sections from Lit editor ref, same as save-template)
+      const editor = promptSectionEditorRef.current as any;
+      const sections = (editor && (editor._sections || editor.sections)) || [];
       try {
         const result = await promptService.savePromptTemplate(
           newTitle,
-          sections,
+          sections.map((s: any) => ({ id: s.id || s.name, type: s.name || s.role, content: s.content || '' })),
           { title: newTitle, description: `Prompt with ${sections.length} sections` }
         );
         if (result.session) {
@@ -885,6 +899,35 @@ export default function Index({
     pendingSectionsRef.current = [];
   }, [promptLoadKey, headerTab]);
 
+  // ── A2UI: Push sections to Lit <prompt-section-editor> imperatively
+  // Declarative prop passing to custom elements can be unreliable for complex arrays.
+  // This ensures the editor always receives the normalized sections when data changes.
+  useEffect(() => {
+    if (!promptSectionEditorRef.current) return;
+    if (headerTab !== 'composer') return;
+    try {
+      const raw = currentPromptSession?.leftColumnContent 
+        ? JSON.parse(currentPromptSession.leftColumnContent).sections || [] 
+        : [];
+      const normalized = raw
+        .map((s: any) => s && typeof s === 'object' ? {
+          name: s.name || s.section || s.role || s.type || 'Section',
+          content: s.content || '',
+          type: s.type || s.role || s.name || 'custom',
+          position: s.position,
+          visible: s.visible !== false,
+        } : null)
+        .filter(Boolean);
+      // Only override if we have real data; let the component keep its seeded defaults otherwise
+      if (normalized.length > 0) {
+        console.log('[A2UI] Imperatively setting sections on <prompt-section-editor>:', normalized.length);
+        (promptSectionEditorRef.current as any).sections = normalized;
+      }
+    } catch (e) {
+      console.warn('[A2UI] Failed to set sections on editor', e);
+    }
+  }, [currentPromptSession?.leftColumnContent, promptLoadKey, headerTab]);
+
   const handleOpenPromptFromConsole = async (sessionId: string) => {
     // ══════════════════════════════════════════════════════════════════════════
     // A2UI v0.9: Open session via unified surface assembly
@@ -907,92 +950,13 @@ export default function Index({
     }
   }, [routeSessionId, handleOpenPromptFromConsole]);
 
-  // Load session from database when route changes (e.g., clicking a card in Console)
-  useEffect(() => {
-    if (!routeSessionId || routeSessionId === 'new') return;
-
-    // Only load if this is a different session than currently loaded
-    if (currentPromptSession?.id === routeSessionId) {
-      console.log('[ROUTE] Session already loaded:', routeSessionId);
-      return;
-    }
-
-    console.log('[ROUTE] Loading session from database:', routeSessionId);
-    setIsLoadingPrompt(true);
-
-    // Dispatch loading state event
-    window.dispatchEvent(new CustomEvent('session-loading-state', {
-      detail: {
-        isLoading: true,
-        progress: 10,
-        error: null,
-        sessionName: 'Loading session...'
-      }
-    }));
-
-    promptService.getPromptSession(routeSessionId)
-      .then((sessionData) => {
-        console.log('[ROUTE] Session loaded from database:', sessionData);
-
-        window.dispatchEvent(new CustomEvent('session-loading-state', {
-          detail: { isLoading: true, progress: 50, error: null, sessionName: sessionData.title }
-        }));
-
-        // Set current session
-        setCurrentPromptSession(sessionData);
-
-        // Parse and dispatch sections to textareas
-        if (sessionData.leftColumnContent) {
-          try {
-            const parsed = JSON.parse(sessionData.leftColumnContent);
-            const sections = parsed.sections || [];
-
-            window.dispatchEvent(new CustomEvent('session-loading-state', {
-              detail: { isLoading: true, progress: 75, error: null, sessionName: sessionData.title }
-            }));
-
-            // Wait for DOM to be ready
-            setTimeout(() => {
-              sections.forEach((section: any) => {
-                const target = section.section || section.role || section.type;
-                const content = section.content || '';
-
-                if (target) {
-                  console.log(`[ROUTE] Loading section "${target}" with ${content.length} chars`);
-                  window.dispatchEvent(new CustomEvent('load-section-content', {
-                    detail: { target, content, sessionId: routeSessionId }
-                  }));
-                }
-              });
-
-              window.dispatchEvent(new CustomEvent('session-loading-state', {
-                detail: { isLoading: false, progress: 100, error: null, sessionName: sessionData.title }
-              }));
-
-              setIsLoadingPrompt(false);
-            }, 150);
-          } catch (error) {
-            console.error('[ROUTE] Failed to parse session content:', error);
-            window.dispatchEvent(new CustomEvent('session-loading-state', {
-              detail: { isLoading: false, progress: 0, error: 'Failed to parse session content' }
-            }));
-            setIsLoadingPrompt(false);
-          }
-        } else {
-          window.dispatchEvent(new CustomEvent('session-loading-state', {
-            detail: { isLoading: false, progress: 100, error: null, sessionName: sessionData.title }
-          }));
-          setIsLoadingPrompt(false);
-        }
-      })
-      .catch((error) => {
-        console.error('[ROUTE] Failed to load session:', error);
-        window.dispatchEvent(new CustomEvent('session-loading-state', {
-          detail: { isLoading: false, progress: 0, error: `Failed to load session: ${error.message}` }
-        }));
-        setIsLoadingPrompt(false);
-      });
-  }, [routeSessionId]);
+  // ══════════════════════════════════════════════════════════════════════════
+  // A2UI v0.9 STRICT: NO LEGACY DIRECT DB LOADS
+  // All surface loads (including routeSessionId) MUST go through assembleSurfaceWithAI.
+  // The effect below that called promptService.getPromptSession directly has been removed.
+  // It was a bypass that fought the model-orchestrated path and caused state races.
+  // ══════════════════════════════════════════════════════════════════════════
+  // (Legacy direct fetch removed per A2UI compliance. See handleOpenPromptFromConsole + initial mount.)
 
   // Auto-create prompt from title query param (e.g., /prompts?title=My+Prompt)
   useEffect(() => {
@@ -1105,9 +1069,29 @@ export default function Index({
   // ═══════════════════════════════════════════════════════════════════════════
   // A2UI v0.9 UNIFIED SURFACE ASSEMBLY
   // ═══════════════════════════════════════════════════════════════════════════
-  // The AI is the ARCHITECT. This single function handles ALL surface rendering.
+  // AI ASSEMBLY — current state (2026-08-01 honest audit):
+  //
+  // TRUE:  AI decides *data* for each intent (cards, sections, messages).
+  // TRUE:  On AI failure, the surface returns 503 — no fake fallback rendering.
+  //
+  // NOT TRUE YET: "AI is the ARCHITECT" — AI cannot reorganize the surface.
+  //   The slot="workspace" JSX below HARDCODES:
+  //     - <workspace-layout> three-column frame (left/middle/right)
+  //     - <prompt-section-editor> in slot="left"
+  //     - <compiled-output-viewer> in slot="middle"
+  //     - <InteractiveChatInterface> in slot="right"
+  //     - <control-bar> always at bottom of left column
+  //   AI can only *populate data into* this frame. It cannot:
+  //     - Add a 4th column, remove a column, or swap positions
+  //     - Choose different components than the hardcoded ones
+  //     - Decide "this task needs no output viewer" and skip it
+  //
+  // DISCOVERY GOAL: For A2UI to be real, AI must control the *component tree*
+  //   (which components, in what arrangement), not just the *data* inside a
+  //   fixed frame. The hardcoded JSX is a scaffold during development —
+  //   the AI should eventually emit the component tree itself.
+  //
   // Intents: "render-console", "render-composer", "render-session:{id}"
-  // NO FALLBACKS: If AI fails, the surface CANNOT render.
   // ═══════════════════════════════════════════════════════════════════════════
   const assembleSurfaceWithAI = useCallback(async (intent: string, context?: {
     current_surface?: string;
@@ -1134,26 +1118,28 @@ export default function Index({
     setIsAIAssembling(true);
     setAiAssemblyFailed(false);
 
-    // Set appropriate spinner message based on intent and context
+    // Set the initial interstitial message (index 0)
+    // The rotation effect will advance through the sequence automatically.
+    setInterstitialIndex(0);
     if (context?.has_unsaved_changes) {
-      setAiAssemblyMessage("Hold on — Grace is checking your unsaved work...");
+      setAiAssemblyMessage("Checking your unsaved work before connecting to Grace...");
     } else if (intent === 'render-console') {
-      setAiAssemblyMessage("Hold on — Grace is assembling your console...");
+      setAiAssemblyMessage(INTERSTITIAL_MESSAGES[0]);
     } else if (intent === 'render-composer') {
-      setAiAssemblyMessage("Hold on — Grace is preparing a fresh workspace...");
+      setAiAssemblyMessage(INTERSTITIAL_MESSAGES[0]);
     } else if (intent.startsWith('render-session:')) {
-      setAiAssemblyMessage("Hold on — Grace is assembling your workspace...");
+      setAiAssemblyMessage(INTERSTITIAL_MESSAGES[0]);
     }
 
     // Create new abort controller for this request
     const controller = new AbortController();
     consoleAssemblyControllerRef.current = controller;
 
-    // Client-side timeout: 45s wall for demo reliability under heavy model load
+    // Client-side timeout: 10s hard cap (user requirement — no indefinite hangs)
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      timeoutId = setTimeout(() => controller.abort(), 45000);
+      timeoutId = setTimeout(() => controller.abort(), 10000);
 
       // ═══════════════════════════════════════════════════════════════════
       // SINGLE UNIFIED ENDPOINT - A2UI v0.9 COMPLIANT
@@ -1184,18 +1170,31 @@ export default function Index({
 
       // ═══════════════════════════════════════════════════════════════════
       // A2UI v0.9 ENVELOPE PARSER
-      // Response is an array of protocol messages
+      // Response is an array of protocol messages.
+      // The MODEL is the architect — we now capture BOTH updateComponents and updateDataModel.
+      // We no longer ignore the components list returned by the LLM.
       // ═══════════════════════════════════════════════════════════════════
       const envelope = Array.isArray(rawData) ? rawData : [rawData];
 
-      // Extract data from A2UI envelope operations
+      // Extract from A2UI envelope operations
       let dataModel: any = {};
+      let assembledComponents: any[] = [];
 
       for (const operation of envelope) {
+        if (operation.updateComponents) {
+          assembledComponents = operation.updateComponents.components || [];
+          console.log(`🤖 [A2UI] Model-supplied components:`, assembledComponents.map((c: any) => c.component || c.id));
+        }
         if (operation.updateDataModel) {
           dataModel = operation.updateDataModel.value || {};
           console.log(`🤖 [A2UI] Data model received:`, Object.keys(dataModel));
         }
+      }
+
+      // Store the model-driven component tree for future dynamic rendering.
+      // (Currently the main layout is still headerTab-driven, but we now respect the model's output.)
+      if (assembledComponents.length > 0) {
+        (window as any).__lastA2UIComponents = assembledComponents;
       }
 
       // A2UI v0.9.1: the envelope carries no non-spec "surface" key.
@@ -1236,9 +1235,9 @@ export default function Index({
         // Map raw_content if available, otherwise construct from sections
         const leftColumnContent = session.left_column?.raw_content || JSON.stringify({
           sections: sections.map((s: any, i: number) => ({
-            section: s.name || s.section,
-            role: s.name || s.role,
+            name: s.name || s.section || s.role || 'Section',
             content: s.content || '',
+            type: s.type || s.role || s.name || 'custom',
             position: i,
             visible: true,
           }))
@@ -1292,34 +1291,89 @@ export default function Index({
 
       setAiAssemblyFailed(false);
 
+      // ═══════════════════════════════════════════════════════════════════
+      // INTERSTITIAL FLOOR: Wait until the 10s minimum is reached.
+      // The user sees the full message sequence. The surface appears
+      // at the END of the interstitial — not before.
+      // This is the AI-native loading pattern: load time = communication time.
+      // ═══════════════════════════════════════════════════════════════════
+      const elapsed = Date.now() - spinnerStartRef.current;
+      const remaining = INTERSTITIAL_MIN_MS - elapsed;
+      if (remaining > 0) {
+        console.log(`🤖 [A2UI] AI responded in ${elapsed}ms — holding ${remaining}ms for interstitial floor`);
+        await new Promise<void>(resolve => {
+          pendingResultRef.current = {
+            resolve,
+            timer: setTimeout(() => {
+              pendingResultRef.current = null;
+              setIsAIAssembling(false); // Clear assembling state when floor is reached
+              resolve();
+            }, remaining),
+          };
+        });
+      }
+
     } catch (error) {
       clearTimeout(timeoutId);
       setIsAIAssembling(false);
       const errMsg = error instanceof Error ? error.message : String(error);
-      if (error instanceof Error && error.name === 'AbortError') {
+      const isAbort = error instanceof Error && (
+        error.name === 'AbortError' ||
+        errMsg.toLowerCase().includes('aborted') ||
+        errMsg.toLowerCase().includes('signal')
+      );
+      if (isAbort) {
         if (consoleAssemblyControllerRef.current === controller) {
-          console.error('🤖 [A2UI] Assembly timed out');
-          setAiAssemblyMessage('AI OFFLINE: Request timed out after 45 seconds. Please try again.');
+          // This request itself timed out (10s hard cap)
+          console.error(
+            `[A2UI] ASSEMBLY TIMED OUT\n` +
+            `  intent: ${intent}\n` +
+            `  timeout: 10000ms\n` +
+            `  error.name: ${error instanceof Error ? error.name : 'N/A'}\n` +
+            `  error.message: ${errMsg}\n` +
+            `  timestamp: ${new Date().toISOString()}\n` +
+            `  CAUSE: Backend did not respond within 10s. Either Z.ai is slow, the Figma spec is empty (causing LLM confusion), or the backend is down.\n` +
+            `  FIX: Check backend logs for the request matching this timestamp. Look for "A2UI FAILURE" or "Figma node" messages.`
+          );
+          setAiAssemblyMessage('Assembly timed out (10s). The AI may be slow or the backend may be unreachable. Check the server logs for details.');
           setAiAssemblyFailed(true);
-          // CRITICAL: Clear fake session - do NOT render composer with stale data
           setCurrentPromptSession(null);
           setAssembledConsoleCards(null);
         } else {
-          console.log('🤖 [A2UI] Request superseded by newer request');
+          // Previous request was aborted because a newer user action (tab click, etc.) superseded it
+          console.log('[A2UI] Previous assembly superseded by newer request (normal)');
         }
       } else {
-        console.error('🤖 [A2UI] Assembly FAILED - Surface cannot render:', error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        setAiAssemblyMessage(`AI OFFLINE: ${errorMessage}`);
+        console.error(
+          `[A2UI] ASSEMBLY FAILED\n` +
+          `  intent: ${intent}\n` +
+          `  error.type: ${error instanceof Error ? error.constructor.name : typeof error}\n` +
+          `  error.name: ${error instanceof Error ? error.name : 'N/A'}\n` +
+          `  error.message: ${errorMessage}\n` +
+          `  error.stack: ${error instanceof Error && error.stack ? error.stack.split('\n').slice(0, 5).join('\n    ') : 'N/A'}\n` +
+          `  timestamp: ${new Date().toISOString()}\n` +
+          `  state: aiAssemblyFailed=true, currentPromptSession=null, assembledConsoleCards=null`
+        );
+        // If the backend gave us a structured 503 detail (starts with "A2UI FAILURE:"),
+        // show it directly — it already says exactly what went wrong.
+        // Otherwise, prefix with context about what failed.
+        const displayMessage = errorMessage.startsWith('A2UI FAILURE:')
+          ? errorMessage
+          : `Assembly failed: ${errorMessage}`;
+        setAiAssemblyMessage(displayMessage);
         setAiAssemblyFailed(true);
-        // CRITICAL: Clear fake session - do NOT render composer with stale data
         setCurrentPromptSession(null);
         setAssembledConsoleCards(null);
       }
     } finally {
       isConsoleAssemblyInFlightRef.current = false;
       consoleAssemblyControllerRef.current = null;
-      setIsAIAssembling(false);
+      // Only clear the assembling state if there's no pending interstitial floor.
+      // If the floor timer is still running, it will clear the state when it fires.
+      if (!pendingResultRef.current) {
+        setIsAIAssembling(false);
+      }
     }
   }, [setHeaderTab]);
 
@@ -1349,8 +1403,13 @@ export default function Index({
   // ══════════════════════════════════════════════════════════════════════════
   // A2UI v0.9: TAB CLICKS ARE AI COMMANDS, NOT WEBPAGE LINKS
   // ══════════════════════════════════════════════════════════════════════════
-  // Every tab click sends an INTENT to the AI. The AI decides what to render.
-  // STRICT: No caching, no fallbacks - AI ALWAYS assembles the surface.
+  // Every tab click sends an INTENT to the AI. The AI decides what DATA to
+  // return. On failure: 503 hard fail, no fake rendering — correct.
+  //
+  // BUT: AI does NOT decide the *frame*. The slot routing in
+  // <ai-surface-sandbox> is hardcoded: console→slot="console",
+  // everything else→slot="workspace". AI cannot create new surface types
+  // or reorganize which slots exist. See assembly audit above.
   // ══════════════════════════════════════════════════════════════════════════
   const handleTabChangeWithGate = useCallback(async (tabId: string | null) => {
     // ══════════════════════════════════════════════════════════════════════
@@ -1690,17 +1749,185 @@ export default function Index({
     window.dispatchEvent(resetEvent);
   };
 
+  // ── A2UI: Wire run-requested / save-requested from Lit <prompt-section-editor> ──
+  // The Lit editor (AI-emitted) is now the source of truth for sections in the AI surface.
+  // Run executes the prompt (real backend call) and streams into compiledOutput.
+  // Middle column appears on Run (even while streaming) and stays if output exists.
+  // Clear-output collapses the middle column. Save persists both left content + compiled output.
+  const handleRunRequested = async (e: Event) => {
+    const { sections = [] } = (e as CustomEvent).detail || {};
+    console.log('[WritingAreaIndex] run-requested from <prompt-section-editor>', sections.length, 'sections');
+
+    if (!currentPromptSession) {
+      console.warn('[WritingAreaIndex] No active prompt session — cannot run');
+      return;
+    }
+
+    const leftColumnContent = JSON.stringify({ sections });
+
+    // Reset output for fresh run; show middle immediately via isComposerRunning
+    setCurrentPromptSession((prev: any) =>
+      prev ? { ...prev, leftColumnContent, compiledOutput: '' } : prev
+    );
+    setIsComposerRunning(true);
+
+    try {
+      const { getApiKey } = await import('@/services/authService');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const apiKey = getApiKey();
+      if (apiKey) headers['X-API-Key'] = apiKey;
+
+      // Build prompt context exactly like the legacy composer did
+      const promptContext = sections
+        .map((s: any) => {
+          const n = s.name || s.section || s.role || s.type || 'Section';
+          const c = (s.content || '').trim();
+          return `## ${n}\n${c}`;
+        })
+        .join('\n\n');
+
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${apiBase}/api/teacher/query`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          question: 'Execute the prompt configuration.',
+          context: promptContext,
+          mode: 'prompt_output',
+          temperature: 0.45,
+          model: 'deepseek-chat',
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        setCurrentPromptSession((prev: any) =>
+          prev ? { ...prev, compiledOutput: `Error: ${resp.status} ${errText}` } : prev
+        );
+        setIsComposerRunning(false);
+        return;
+      }
+
+      const reader = resp.body?.getReader();
+      const decoder = new TextDecoder();
+      let output = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.slice(6));
+                if (parsed.content) {
+                  output += parsed.content;
+                  // Live update so the viewer streams and layout keeps middle visible
+                  setCurrentPromptSession((prev: any) =>
+                    prev ? { ...prev, compiledOutput: output } : prev
+                  );
+                }
+              } catch {
+                // non-JSON data lines are ignored
+              }
+            }
+          }
+        }
+      }
+
+      if (!output.trim()) {
+        setCurrentPromptSession((prev: any) =>
+          prev ? { ...prev, compiledOutput: '(No output returned.)' } : prev
+        );
+      }
+    } catch (err: any) {
+      console.error('[WritingAreaIndex] Run execution failed', err);
+      setCurrentPromptSession((prev: any) =>
+        prev ? { ...prev, compiledOutput: `Error: ${err?.message || String(err)}` } : prev
+      );
+    } finally {
+      setIsComposerRunning(false);
+      // Optional: give the layout a hint to equalize widths when middle appears
+      window.dispatchEvent(new CustomEvent('reset-columns-to-equal-widths', { detail: { isThirdColumnOpening: true } }));
+    }
+  };
+
+  const handleSaveRequested = (e: Event) => {
+    const { sections = [] } = (e as CustomEvent).detail || {};
+    console.log('[WritingAreaIndex] save-requested from <prompt-section-editor>', sections.length, 'sections');
+
+    const leftColumnContent = JSON.stringify({ sections });
+    const compiledOutput = currentPromptSession?.compiledOutput || '';
+
+    setCurrentPromptSession((prev: any) =>
+      prev ? { ...prev, leftColumnContent } : prev
+    );
+
+    // Pass BOTH compiledOutput AND the authoritative sections from the Lit editor.
+    // This bypasses the broken DOM query inside handleSavePrompt (textareas are in open shadow DOM).
+    handleSavePromptRef.current?.(compiledOutput, sections);
+  };
+
+  // Clear from the compiled-output-viewer "Clear" button → collapse middle column
+  const handleClearOutput = () => {
+    console.log('[WritingAreaIndex] clear-output — collapsing middle column');
+    setCurrentPromptSession((prev: any) =>
+      prev ? { ...prev, compiledOutput: '' } : prev
+    );
+  };
+
     console.log('✅ [WritingAreaIndex] Setting up event listeners');
     window.addEventListener("switchToMemoriesTab", handleSwitchToMemoriesTab);
     window.addEventListener("switchToChatTab", handleSwitchToChatTab);
     window.addEventListener("toggle-third-column", handleToggleThirdColumn);
 
-    // Listen for save-template event from ResponsivePromptBuilder's Save Template button
-    // Uses handleSavePromptRef to avoid stale closure
+    // Listen for save-template event from ResponsivePromptBuilder's Save Template button.
+    // Reads sections from the Lit <prompt-section-editor> ref (source of truth).
+    // This is the SAME path as save-requested — no broken DOM fallback.
     const handleSaveTemplateEvent = () => {
-      handleSavePromptRef.current();
+      const editor = promptSectionEditorRef.current as any;
+      const sections = (editor && (editor._sections || editor.sections)) || [];
+      const compiledOutput = currentPromptSession?.compiledOutput || '';
+      console.log('[save-template] Reading', sections.length, 'sections from Lit editor ref');
+      handleSavePromptRef.current?.(compiledOutput, sections);
     };
     window.addEventListener("save-template", handleSaveTemplateEvent);
+
+    window.addEventListener("run-requested", handleRunRequested);
+    window.addEventListener("save-requested", handleSaveRequested);
+    window.addEventListener("clear-output", handleClearOutput);
+
+    // Wire the bottom control bar (control-bar from Figma node 40000761:261) to the *existing* CRUD paths only.
+    // No new save/run/version logic — re-uses handleSavePromptRef + run-requested dispatch exactly as the Lit editor does.
+    // Control-bar save: reads sections from Lit editor ref (same as save-template).
+    const handleControlBarSave = () => {
+      const editor = promptSectionEditorRef.current as any;
+      const sections = (editor && (editor._sections || editor.sections)) || [];
+      const compiledOutput = currentPromptSession?.compiledOutput || '';
+      console.log('[control-bar] save-click →', sections.length, 'sections from Lit editor ref');
+      handleSavePromptRef.current?.(compiledOutput, sections);
+    };
+    const handleControlBarRun = () => {
+      const editor = promptSectionEditorRef.current as any;
+      const sections = (editor && (editor._sections || editor.sections)) || [];
+      console.log('[control-bar] run-click → dispatching run-requested (existing path)');
+      window.dispatchEvent(new CustomEvent('run-requested', { detail: { sections } }));
+    };
+    window.addEventListener('save-click', handleControlBarSave as EventListener);
+    window.addEventListener('run-click', handleControlBarRun as EventListener);
+
+    // Wire undo-click from control-bar (Figma node 40000761:271 "undo-last-state-milivis")
+    // TODO: undo-last-state-milivis has no backend handler yet. Wire the event now,
+    // implement the Milvus state rollback when the backend supports it.
+    const handleControlBarUndo = () => {
+      console.log('[control-bar] undo-click → undo-last-state-milivis (no backend handler yet)');
+      // Future: dispatch undo to Milvus state manager
+      // window.dispatchEvent(new CustomEvent('undo-last-state'));
+    };
+    window.addEventListener('undo-click', handleControlBarUndo as EventListener);
 
     // DELETED: prompt-session-loaded listener - was database fallback bypassing AI assembly
     // All session loads MUST go through AI assembly via handleOpenPromptFromConsole
@@ -1742,6 +1969,12 @@ export default function Index({
       window.removeEventListener("switchToChatTab", handleSwitchToChatTab);
       window.removeEventListener("toggle-third-column", handleToggleThirdColumn);
       window.removeEventListener("save-template", handleSaveTemplateEvent);
+      window.removeEventListener("run-requested", handleRunRequested);
+      window.removeEventListener("save-requested", handleSaveRequested);
+      window.removeEventListener("clear-output", handleClearOutput);
+      window.removeEventListener('save-click', handleControlBarSave as EventListener);
+      window.removeEventListener('run-click', handleControlBarRun as EventListener);
+      window.removeEventListener('undo-click', handleControlBarUndo as EventListener);
       window.removeEventListener("prompt-session-loaded", handlePromptSessionLoaded);
       window.removeEventListener("prompt-session-deleted", handlePromptSessionDeleted);
       window.removeEventListener("start-new-prompt", handleStartNewPrompt);
@@ -1833,10 +2066,11 @@ export default function Index({
         onNewProject={handleCreateProject}
       />
 
-      {/* Main content area — flex column so header stacks above columns */}
+      {/* Main content area — flex column that takes remaining height after header.
+          Uses flex-1 + min-h-0 so the operator shell row below the header can grow
+          to fill the viewport. No more vh calc hacks. */}
       <div
-        className="flex-1 min-w-0 flex flex-col overflow-hidden"
-        style={{ boxSizing: "border-box" }}
+        className="flex flex-col flex-1 min-w-0 overflow-hidden"
       >
         {/* ── HEADER FRAME — spans full width above all columns ── */}
         <LeftColumnHeader
@@ -1853,65 +2087,130 @@ export default function Index({
         />
 
         {/* ── OPERATOR SHELL + AI SURFACE — 2UI architecture ── */}
-        <div ref={consoleChatContainerRef} className="flex-1 flex flex-row overflow-hidden min-h-0">
-          {/* ── AI SURFACE — Lit Shadow DOM sandbox for A2UI content rendering ── */}
-          <SentryErrorBoundary scope="ai-surface" onError={(error) => console.error("AI Surface error:", error.message)}>
-            {/* P1+MIGRATION: React AISurfaceSandbox → Lit <ai-surface-sandbox>.
-                Properties map to HTML attributes; children use named slots for
-                Shadow DOM projection. React components MUST be wrapped in DOM
-                elements — the browser assigns slots based on the slot="..."
-                HTML attribute, which React components do not render on their
-                root elements. */}
-            <ai-surface-sandbox
-              key={isAIAssembling ? "assembling" : "idle-or-failed"}
-              is-ai-assembling={isAIAssembling ? '' : undefined}
-              header-tab={headerTab}
-            >
-              {/* slot="spinner" — shown when is-ai-assembling is true */}
-              <div slot="spinner" className="flex flex-col items-center justify-center gap-4 size-full" style={{ backgroundColor: "#E5E1DD" }}>
-                <div className="w-8 h-8 border-4 border-[#507274] border-t-transparent rounded-full animate-spin"></div>
-                <p className="text-[#507274] text-sm font-medium font-['Inter'] animate-pulse">{aiAssemblyMessage}</p>
-              </div>
-              {/* slot="console" — shown when header-tab is "console" */}
-              <div slot="console" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0, minWidth: 0, overflowX: 'hidden' }}>
-                <ConsolePage
-                  refreshKey={consoleRefreshKey}
-                  aiAssembledCards={assembledConsoleCards}
-                  isParentLoading={isAIAssembling}
-                  loadingMessage={aiAssemblyMessage}
-                  errorMessage={aiAssemblyFailed ? aiAssemblyMessage : null}
-                  onCreateNew={async (_title) => {
-                    await assembleSurfaceWithAI('render-composer', {
-                      current_surface: headerTab || 'console',
-                      has_unsaved_changes: hasUnsavedChangesRef.current,
-                      session_id: currentPromptSession?.id || null,
-                      session_title: currentPromptSession?.title || '',
-                    });
-                  }}
-                  onOpenPrompt={async (sessionId) => {
-                    await assembleSurfaceWithAI(`render-session:${sessionId}`, {
-                      current_surface: headerTab || 'console',
-                      has_unsaved_changes: hasUnsavedChangesRef.current,
-                      session_id: currentPromptSession?.id || null,
-                      session_title: currentPromptSession?.title || '',
-                    });
-                  }}
-                />
-              </div>
-              {/* slot="workspace" — shown for composer, evaluation, variables, metadata tabs */}
-              <div slot="workspace" style={{ display: 'flex', flex: '1 1 auto', minHeight: 0, minWidth: 0, overflowX: 'hidden' }}>
-                <PromptWorkspace
-                  key={promptLoadKey}
-                  session={currentPromptSession}
-                  flipped={flipped}
-                  isLoading={isLoadingPrompt}
-                  onSave={handleSavePrompt}
-                  onConversationChange={handleConversationChange}
-                  isSaving={isSavingPrompt}
-                  approvalMode={approvalMode}
-                  onClearApproval={clearApprovalMode}
-                />
-              </div>
+        <div ref={consoleChatContainerRef} className="flex flex-row overflow-hidden flex-1 min-h-0" style={{ minWidth: 0 }}>
+            {/* ── AI SURFACE — Lit Shadow DOM sandbox for A2UI content rendering ── */}
+            <SentryErrorBoundary scope="ai-surface" onError={(error) => console.error("AI Surface error:", error.message)}>
+              {/* P1+MIGRATION: React AISurfaceSandbox → Lit <ai-surface-sandbox>.
+                  Properties map to HTML attributes; children use named slots for
+                  Shadow DOM projection. React components MUST be wrapped in DOM
+                  elements — the browser assigns slots based on the slot="..."
+                  HTML attribute, which React components do not render on their
+                  root elements. */}
+              <ai-surface-sandbox
+                key={isAIAssembling ? "assembling" : "idle-or-failed"}
+                is-ai-assembling={isAIAssembling ? '' : undefined}
+                header-tab={headerTab}
+              >
+                {/* slot="spinner" — INTERSTITIAL LOADING: AI-NATIVE BEST PRACTICE
+                     The 10s loading floor is a feature, not a bug.
+                     During that time, this panel communicates with the user:
+                     what the AI is doing, what A2UI is, what happens next.
+                     The message rotates every ~2.2s through INTERSTITIAL_MESSAGES.
+                     A progress bar shows elapsed time toward the 10s floor. */}
+                <div slot="spinner" className="flex flex-col items-center justify-center gap-5 size-full" style={{ backgroundColor: "#E5E1DD" }}>
+                  <div className="w-8 h-8 border-4 border-[#507274] border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-[#507274] text-sm font-medium font-['Inter'] transition-all duration-300">{INTERSTITIAL_MESSAGES[interstitialIndex] || aiAssemblyMessage}</p>
+                  {/* Progress bar: fills over 10s to show the interstitial floor */}
+                  <div className="w-48 h-1 bg-[#507274]/20 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#507274] rounded-full transition-all duration-[2200ms] ease-linear"
+                      style={{ width: `${Math.min(100, ((interstitialIndex + 1) / INTERSTITIAL_MESSAGES.length) * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-[#507274]/60 text-xs font-['Inter']">{interstitialIndex + 1} / {INTERSTITIAL_MESSAGES.length}</p>
+                </div>
+                {/* slot="console" — shown when header-tab is "console" */}
+                <div slot="console" style={{ display: 'flex', flex: '1 1 0%', height: '100%', minHeight: 0, minWidth: 0, overflow: 'auto' }}>
+                  <ConsolePage
+                    refreshKey={consoleRefreshKey}
+                    aiAssembledCards={assembledConsoleCards}
+                    isParentLoading={isAIAssembling}
+                    loadingMessage={aiAssemblyMessage}
+                    errorMessage={aiAssemblyFailed ? aiAssemblyMessage : null}
+                    onCreateNew={async (_title) => {
+                      await assembleSurfaceWithAI('render-composer', {
+                        current_surface: headerTab || 'console',
+                        has_unsaved_changes: hasUnsavedChangesRef.current,
+                        session_id: currentPromptSession?.id || null,
+                        session_title: currentPromptSession?.title || '',
+                      });
+                    }}
+                    onOpenPrompt={async (sessionId) => {
+                      await assembleSurfaceWithAI(`render-session:${sessionId}`, {
+                        current_surface: headerTab || 'console',
+                        has_unsaved_changes: hasUnsavedChangesRef.current,
+                        session_id: currentPromptSession?.id || null,
+                        session_title: currentPromptSession?.title || '',
+                      });
+                    }}
+                  />
+                </div>
+                {/* slot="workspace" — AI-driven Lit tree (A2UI v0.9.1).
+                    Slots are the loading contract. AI fills them with prompt blocks.
+                    When assembly FAILS, show the error — no hiding. */}
+                <div slot="workspace" style={{ display: 'flex', flex: '1 1 0%', height: '100%', minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
+                  {aiAssemblyFailed ? (
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', overflow: 'auto' }}>
+                      <h3 style={{ fontSize: '13px', fontWeight: 600, color: '#991B1B', margin: '0 0 8px' }}>Assembly failed</h3>
+                      <pre style={{ fontSize: '11px', fontFamily: 'monospace', color: '#7F1D1D', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{aiAssemblyMessage}</pre>
+                    </div>
+                  ) : (
+                  <workspace-layout 
+                    show-middle={isComposerRunning || !!currentPromptSession?.compiledOutput ? '' : undefined}
+                    style={{ height: '100%', width: '100%' }}
+                  >
+                    <div 
+                      slot="left"
+                      style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}
+                    >
+                      <prompt-section-editor
+                        ref={promptSectionEditorRef}
+                        style={{ flex: '1 1 0%', minHeight: 0, overflow: 'auto' }}
+                        sections={( () => {
+                        try { 
+                          const raw = currentPromptSession?.leftColumnContent 
+                            ? JSON.parse(currentPromptSession.leftColumnContent).sections || [] 
+                            : []; 
+                          return raw
+                            .map((s: any) => s && typeof s === 'object' ? {
+                              name: s.name || s.section || s.role || s.type || 'Section',
+                              content: s.content || '',
+                              type: s.type || s.role || s.name || 'custom',
+                              position: s.position,
+                              visible: s.visible !== false,
+                            } : null)
+                            .filter(Boolean);
+                        } catch { return []; } 
+                      })()}
+                      session-id={currentPromptSession?.id || undefined}
+                    />
+                    <control-bar
+                      version-text={currentPromptSession ? `Editing Version ${currentPromptSession.currentVersion || 1}` : 'Editing Version 1'}
+                      is-saving={isSavingPrompt ? '' : undefined}
+                      is-running={isComposerRunning ? '' : undefined}
+                    />
+                  </div>
+                    <compiled-output-viewer
+                      slot="middle"
+                      content={currentPromptSession?.compiledOutput || ''}
+                      session-id={currentPromptSession?.id || undefined}
+                      is-running={isComposerRunning ? '' : undefined}
+                    />
+                    <div slot="right" style={{ height: '100%', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      {/* chat-panel target for the AI layout; bridge existing chat for composer surfaces.
+                          Pass sessionId so conversations are strictly scoped to this prompt package (prompt_session).
+                          Pass compiledOutput + isRunning so the assistant can auto-analyze on Run.
+                          overflow: hidden constrains the chat within the workspace-layout right pane —
+                          prevents the chat column from pushing past the browser right edge. */}
+                      <InteractiveChatInterface 
+                      sessionId={currentPromptSession?.id || null}
+                      compiledOutput={currentPromptSession?.compiledOutput || ''}
+                      isRunning={false}
+                    />
+                  </div>
+                  </workspace-layout>
+                  )}
+                </div>
             </ai-surface-sandbox>
           </SentryErrorBoundary>
 

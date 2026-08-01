@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from functools import lru_cache
 
+from config import is_development
+
 
 class TagCache:
     """Multi-layer caching system for tag operations"""
@@ -27,7 +29,12 @@ class TagCache:
     # ============================================
     
     def get_cached_tags(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        """Get cached tag data from server-side memory"""
+        """Get cached tag data from server-side memory.
+        DEV MODE: caches are NEVER used (every call is a miss).
+        """
+        if is_development():
+            self._cache_misses += 1
+            return None
         if cache_key in self._memory_cache:
             cached_data = self._memory_cache[cache_key]
             cached_time = cached_data.get('cached_at')
@@ -44,7 +51,11 @@ class TagCache:
         return None
     
     def set_cached_tags(self, cache_key: str, data: Dict[str, Any]):
-        """Cache tag data in server-side memory"""
+        """Cache tag data in server-side memory.
+        DEV MODE: no-op (caches disabled).
+        """
+        if is_development():
+            return
         self._memory_cache[cache_key] = {
             'data': data,
             'cached_at': datetime.now()
@@ -82,8 +93,11 @@ class TagCache:
     def get_tag_definition(self, tag_path: str, user_id: Optional[str] = None) -> Optional[Dict]:
         """
         Get tag definition (cached with LRU)
-        This is for tag definitions which rarely change
+        This is for tag definitions which rarely change.
+        DEV MODE: always bypass (return fresh/None, no cached value used).
         """
+        if is_development():
+            return None
         # This would typically query the database
         # For now, return None (implement database query as needed)
         return None

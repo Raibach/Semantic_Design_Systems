@@ -202,6 +202,17 @@ def extract_node_spec(node: Dict) -> Dict:
     radius, spread, color), auto-layout values, and — for TEXT layers — the
     complete type style (family, PostScript name, weight, size, line height
     px + %, letter spacing, alignment, case, decoration).
+
+    CAVEAT (2026-08-01): If a node has no children, fills, layout, or any
+    design data, this returns {"id":..., "name":..., "type":...} which is
+    TRUTHY but USELESS — it passes `if spec` checks but has zero design info.
+    The caller (ai.py) now validates that the spec has actual design data
+    (children, layout, or fills) before accepting it.
+
+    DEAD NODE: Figma node 40000717:17091 in file 20UPR2KQMsbAxlo5NJb1se
+    currently returns an empty spec (48 chars, zero children). This node
+    may have been deleted or moved. The ai.py render-composer handler will
+    reject this with a 503 until a valid node ID is provided.
     """
     spec: Dict[str, Any] = {
         "id": node.get("id"),

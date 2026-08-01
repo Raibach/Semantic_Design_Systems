@@ -7,6 +7,8 @@ import traceback
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from config import is_development
+
 from fastapi import APIRouter, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -130,7 +132,10 @@ async def api_figma_spec(file_key: str, node_id: str, refresh: bool = Query(Fals
     node_id = node_id.replace("-", ":")
 
     # ── Cache read ──
-    if not refresh:
+    # DEV MODE: never read the PostgreSQL figma_specs cache.
+    # Every request forces a fresh pull from Figma + re-extract.
+    # Use ?refresh=true in any mode to force a re-pull.
+    if not refresh and not is_development():
         try:
             conn = _spec_db()
             cur = conn.cursor()

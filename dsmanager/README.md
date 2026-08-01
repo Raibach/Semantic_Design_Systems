@@ -1,9 +1,20 @@
 # Semantic Design System Manager
 
-> **One surface. Any payload. The AI is the Architect.**
+> **One surface. Any payload. AI fills the slots.**
 
 **Raibach Interactive Design Studio** · John Holt  
-Version **0.9.1** · A2UI Protocol Compliant · 2026-07-31
+Version **0.9.1** · A2UI Protocol Compliant · 2026-08-01
+
+---
+
+## Architecture: React Shell + AI Surface
+
+This project follows the **React Shell + AI Surface** pattern — the emerging industry standard for AI-native applications.
+
+- **The React Shell**: Handles deterministic UI, routing, authentication, and design system consistency (React, TypeScript, Tailwind, shadcn/ui).
+- **The AI Surface**: Manages dynamic content generation, intent classification, and multi-modal interactions (text, image, speech) embedded within the shell.
+
+**Non-negotiable: the user must never stare at a blank page.** The deterministic shell always renders — navigation, frame, error states, slot containers — regardless of what the AI does or doesn't do. The AI fills slots *inside* a shell that already exists. If the AI fails, the shell shows the failure. If the AI is slow, the shell shows a loading state. The shell is never absent.
 
 ---
 
@@ -42,12 +53,13 @@ A **prompt-package lifecycle workspace** built on the A2UI (Agent-to-User Interf
 
 | Principle | Implementation |
 |-----------|---------------|
-| **AI as Architect** | The AI generates complete component trees — structure, layout, and data — at runtime. No templates. No fallbacks. |
+| **Shell Always Visible** | The deterministic React shell renders unconditionally — nav, frame, error states, slot containers. The user never stares at a blank page. AI failure = shell shows the failure, not nothing. |
+| **AI Fills Slots** | Slots are the loading contract (left/middle/right). AI decides which prompt blocks, data, and chat populate them. It does not create or remove slots. |
 | **Zero-Trust Catalog** | Every component validated against `component-catalog.json`. Unknown → HTTP 503. No silent failures. |
-| **Fail Loud** | Invalid AI responses → 503 with diagnostics. Database down → 503. Never silently degrade. |
+| **Fail Loud** | Invalid AI responses → 503 with diagnostics. Database down → 503. Empty Figma spec → 503 with exact reason. Never silently degrade. |
 | **No Executable Code** | `eval()` eliminated. `innerHTML` blocked. Buttons dispatch declarative `a2ui:action` events only. |
 | **Package-First** | A composer creates the draft package row on mount. Chat is scoped from keystroke one. |
-| **Pixel-Exact Figma** | Lit components render 1:1 against Figma API specs. Design system owns the values. |
+| **Honest Code** | Comments tell the truth about what the code does. If something is hardcoded, the comment says so. No "AI is the Architect" over fixed layouts. |
 
 ---
 

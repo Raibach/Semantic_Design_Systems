@@ -127,7 +127,7 @@ export class AISurfaceSandbox extends LitElement {
       background-color: #e5e1dd;
       overflow: hidden;
       contain: layout style;
-      margin: 0 4px 4px 4px;
+      margin: 0;
       box-shadow:
         inset 0 2px 4px rgba(0, 0, 0, 0.06),
         0 1px 2px rgba(0, 0, 0, 0.05);
@@ -263,6 +263,12 @@ export class AISurfaceSandbox extends LitElement {
   `;
 
   // ── Render ───────────────────────────────────────────────────────────────
+  // HONEST STATUS (2026-08-01):
+  // This viewport routes to exactly 3 slots: console | workspace | spinner.
+  // The AI decides WHAT fills those slots (prompt blocks, data, chat messages)
+  // but cannot change the slot contract itself. Per owner design, the prompt
+  // layout has slots with pre-ordered locations for modules — slots are the
+  // layout contract, blocks are the content the AI controls.
   render() {
     // Runtime error boundary (template compilation failures)
     if (this._hasRuntimeError) {
@@ -288,6 +294,12 @@ export class AISurfaceSandbox extends LitElement {
     }
 
     // Normal rendering — project the active slot into the viewport
+    // HONEST STATUS (2026-08-01): Slot routing is FIXED: console | workspace | spinner.
+    // The AI controls WHAT fills the slots (which prompt blocks, which data),
+    // but it cannot create new slot names or change the routing logic.
+    // The slot contract (left=prompt-section-editor, middle=compiled-output-viewer,
+    // right=chat-panel) is the layout framework — pre-ordered locations for modules.
+    // This is correct per owner design: slots are the contract, blocks are the content.
     const activeSlot = this.isAIAssembling
       ? 'spinner'
       : this.headerTab === 'console'
