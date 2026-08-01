@@ -1,107 +1,157 @@
-# Semantic Design System Lifecycle Management 
+# Semantic Design System Manager
 
 > **One surface. Any payload. The AI is the Architect.**
 
-**Built by John Holt, Raibach Interactive Design Studio**
-**Date:** 2026-07-27 · **Version:** 0.9.1-dev · **Status:** Active Development (honest A2UI restoration in progress)
+**Raibach Interactive Design Studio** · John Holt  
+Version **0.9.1** · A2UI Protocol Compliant · 2026-07-31
 
 ---
 
-## What This Is
+## Overview
 
-An **A2UI (Agent-to-User Interface) workspace** — a single, stable three-column surface where every pixel is assembled at runtime by the AI from a trusted component catalog. No URL routing to surfaces. No static pages. Every navigation action is an AI command (`intent`) that flows through one unified endpoint and returns a spec-compliant envelope.
+A **prompt-package lifecycle workspace** built on the A2UI (Agent-to-User Interface) protocol. The AI assembles every pixel at runtime from a trusted component catalog — no URL routing, no static pages, no hardcoded layouts. Navigation is an AI command that returns a spec-compliant envelope through a single unified endpoint.
 
-**The product:** prompt *packages* — configuration + conversation history + execution trace + governance metadata, bundled as one versioned, shareable, contributor-owned unit. The package is the aggregate root; the user is not the package.
-
-**Docs of record:**
-- [`SPECIFICATIONS.md`](SPECIFICATIONS.md) — full A2UI Protocol v0.9.1 + Basic Catalog Guide + A2A Extension (verbatim from [a2ui.org](https://a2ui.org/))
-- [`READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md`](READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md) — the live-verified ledger of what was real vs compliance theater, and the remediation that fixed it
-- [`CHANGELOG.md`](CHANGELOG.md) — day-by-day build log
+**The product:** prompt *packages* — configuration + conversation + execution trace + governance metadata — bundled as one versioned, shareable, contributor-owned unit. The package is the aggregate root; the user is not the package.
 
 ---
 
-## A2UI v0.9.1 — As Actually Implemented (verified live 2026-07-27)
+## Architecture at a Glance
 
-| Mechanism | Reality |
-|-----------|---------|
-| **Unified assembly endpoint** | `POST /api/ai/assemble-surface` — the ONLY surface path. Intents: `render-console`, `render-composer`, `render-session:{id}` |
-| **Envelope** | Array of protocol messages — `createSurface`, `updateComponents`, `updateDataModel` — each stamped `"version": "v0.9.1"`, `catalogId` = catalog `$id` |
-| **Trusted catalog** | `frontend/src/components/A2UI/component-catalog.json` — **24 components** (6 A2UI Basic + 18 project-specific, `ChildList`/`DynamicString` typed per validator rules) |
-| **Zero-trust validation** | Catalog loads at startup (fail-fast); `validate_a2ui_components()` guards every return point; unknown components → **HTTP 503 `VALIDATION_FAILED`** (spec error format) |
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        A2UI v0.9.1 Surface                      │
+│                                                                  │
+│  POST /api/ai/assemble-surface                                   │
+│  ┌────────────┐  ┌─────────────────┐  ┌───────────────────┐     │
+│  │  Section    │  │   Compiled      │  │     Chat          │     │
+│  │  Editor     │  │   Output        │  │     Panel         │     │
+│  │  (left)     │  │   (middle)      │  │     (right)      │     │
+│  └────────────┘  └─────────────────┘  └───────────────────┘     │
+│                                                                  │
+│  Intents: render-console · render-composer · render-session:{id} │
+│  Envelope: createSurface → updateComponents → updateDataModel    │
+└──────────────────────────────────────────────────────────────────┘
+         │                    │                     │
+    PostgreSQL          DeepSeek V4          Zilliz Cloud
+    (42 tables)         (AI assembly)       (vector memory)
+```
 
 ---
 
-## Repository Layout (post-2026-07-27 refactor)
+## Key Principles
 
-The backend was modularized from a single 4,323-line `main.py` into focused files (zero behavior change; all 79 endpoints verified by AST route parity, compile checks, and a live boot):
+| Principle | Implementation |
+|-----------|---------------|
+| **AI as Architect** | The AI generates complete component trees — structure, layout, and data — at runtime. No templates. No fallbacks. |
+| **Zero-Trust Catalog** | Every component validated against `component-catalog.json`. Unknown → HTTP 503. No silent failures. |
+| **Fail Loud** | Invalid AI responses → 503 with diagnostics. Database down → 503. Never silently degrade. |
+| **No Executable Code** | `eval()` eliminated. `innerHTML` blocked. Buttons dispatch declarative `a2ui:action` events only. |
+| **Package-First** | A composer creates the draft package row on mount. Chat is scoped from keystroke one. |
+| **Pixel-Exact Figma** | Lit components render 1:1 against Figma API specs. Design system owns the values. |
+
+---
+
+## Component Catalog
+
+24 trusted components — 6 A2UI Basic + 18 project-specific — typed with `ChildList` / `DynamicString` per validator rules.
+
+```
+A2UI Basic:     Column · Text · Image · Button · ActionGroup · DecisionDialog
+Surface:        ConsoleCardGrid · SectionEditor · CompiledOutput · ChatPanel
+Controls:       ControlBar · AddSectionButton · StatusReadout · TokenCostReadout
+Cards:          AgentCard · FlipCard · FeaturedCard · ApprovalQueueItem
+Layout:         WorkspaceLayout · ResizableSplitter · AiSurfaceSandbox · SidebarNavigation
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Frontend** | React 18 + Lit 3.x (hybrid) · Vite · pnpm · Tailwind · TypeScript |
+| **Backend** | FastAPI · PostgreSQL 15 · Zilliz Cloud (Milvus) · DeepSeek V4 |
+| **Components** | Lit Web Components (Shadow DOM) · Figma API spec-driven |
+| **Deploy** | Docker · Northflank (us-central) · Cloudflare Tunnel |
+
+---
+
+## Repository Layout
 
 ```
 backend/
-├── main.py            # 135 lines — app setup, startup, router includes, SPA serving
-├── deps.py            # Shared helpers: constants, A2UI catalog loader, user helpers
-├── services.py        # Database service startup (all 5 APIs)
-└── routes/            # 11 topic routers
-    ├── conversations.py   # Conversation + message CRUD, surface state, tags
-    ├── projects.py        # Project CRUD
-    ├── prompt_sessions.py # Packages, versions, permissions, suggestions, context
-    ├── memory.py          # Memory storage/update/delete (dictation)
-    ├── ai.py              # Manifest, assemble-surface, confirm-exit, save-surface, audit
-    ├── teacher.py         # Teacher query, model ensure, transcribe stub
-    ├── misc.py            # Health, news, PDF, memory recall, reasoning, source eval, train
-    ├── figma.py           # Figma API proxy endpoints
-    ├── milvus.py          # Zilliz/Milvus info, collections, vectors, save, versions
-    ├── agent_rpc.py       # JSON-RPC 2.0 agent integration
-    └── files.py           # Documentation file read/write/list
+├── main.py              # App setup, startup, router includes
+├── deps.py              # A2UI catalog loader, shared helpers
+├── services.py          # Database service startup
+├── figma_service.py     # Figma API → Lit spec extractor
+├── grace_gui.py         # AI system prompts & assembly logic
+└── routes/              # 11 topic routers
+    ├── ai.py                # Manifest, assemble-surface, save, audit
+    ├── conversations.py    # Conversation + message CRUD
+    ├── prompt_sessions.py  # Packages, versions, permissions
+    ├── projects.py         # Project CRUD
+    ├── memory.py           # Memory storage (dictation)
+    ├── figma.py            # Figma API proxy
+    ├── milvus.py           # Zilliz/Milvus vectors
+    ├── agent_rpc.py        # JSON-RPC 2.0 agent integration
+    ├── teacher.py          # Teacher query, model ensure
+    ├── misc.py             # Health, news, PDF, reasoning
+    └── files.py            # Documentation file I/O
+
+frontend/
+├── src/
+│   ├── App.tsx              # Root app with routes
+│   ├── components/
+│   │   ├── A2UI/            # A2UI surface container
+│   │   ├── lit/             # Lit web components (agent-card, control-bar, workspace-layout, …)
+│   │   └── _old/            # Archived components (excluded from build)
+│   ├── pages/               # WritingAreaIndex (main surface)
+│   ├── hooks/               # React hooks
+│   └── shared/              # Surface contract, tag registry
+├── scripts/                  # Manifest generator, Figma sync
+└── storybook-static/         # Component storybook
 ```
 
-**Local dev:** `bash RESTART-LOCAL.sh` (unchanged, compatible). **Production:** Northflank `prompt-composer-console` (us-central) — deploy via git push to `main` (CI/CD) or the local `DEPLOY-NORTHFLANK.sh` runbook (gitignored).
-| **No executable code** | `eval()` deleted; raw `innerHTML` injection blocked; buttons dispatch declarative `a2ui:action` events only |
-| **No fallbacks** | AI offline or invalid JSON → HTTP 503 with the real error. Fail hard, fail loud |
-| **Chat = command interface** | XML tags in AI responses (`<update_agent>`, `<add_role>`, `<reassemble-console>`) bridge to surface commands via CustomEvents |
+---
 
-## Architecture
-
-```
-Console tab ──► render-console  ──► PostgreSQL → DeepSeek → v0.9.1 envelope ──► Lit agent-card grid
-Composer tab ─► render-composer ─► draft package row CREATED ON MOUNT ─► chat package-scoped from keystroke one
-Open card ────► render-session:{id} ─► full package: sections + output + conversation + versions
-
-Left column   = SectionEditor (prompt sections: System/User/Tool/FewShot/Context/Constraints)
-Middle column = CompiledOutput (universal render target)
-Right column  = ChatPanel (the command interface for the whole surface)
-Sandbox frame = <ai-surface-sandbox> — Lit Shadow DOM viewport; React shell only orchestrates
-```
-
-**Package-first composer:** a new composer creates the draft package row immediately (`metadata.draft = true`, hidden from the console until saved). **Contributors:** `session_permissions` (owner/editor/viewer) with owner-gated grant/revoke/transfer endpoints; reads are permission-aware (owned OR shared).
-
-## Data Layer
-
-| Store | Role | Truth |
-|-------|------|-------|
-| **PostgreSQL `railway`** (local 15.14, Homebrew) | Source of truth: 42 tables — packages, versions (4.9k), conversations, permissions, audit | Local dev stays authoritative until site repair completes |
-| **Zilliz Cloud** (`in03-5620992e020c852`, gcp-us-west1) | Vector memory: 8 collections — `prompt_versions`, `prompt_memory`, `ai_actions` (384-dim, `BAAI/bge-small-en`, COSINE) | Live via REST + pymilvus w/ token |
-| **DeepSeek** (`deepseek-v4-flash`, fallback `deepseek-chat`) | All assembly + compilation | Live |
-
-## Development
+## Quick Start
 
 ```bash
-bash RESTART-LOCAL.sh        # verifies .env/.venv/Postgres, kills :5173, boots uvicorn main:app
-cd frontend && npm run build # rebuild dist (backend serves frontend/dist — REBUILD AFTER ANY FRONTEND CHANGE)
+# Frontend build (required for local dev)
+cd frontend && pnpm install && pnpm build
+
+# Start backend + serve UI
+bash RESTART-LOCAL.sh
+
+# Open
+open http://localhost:5001
 ```
 
 - **Health:** `GET /api/health` → `{"database":"connected","milvus":"connected"}`
-- **Access:** PIN gate (`7377` local dev)
-- **Dev phase:** global no-cache middleware — nothing is ever cached; long loads expected
-- **Identity:** console is strictly user-scoped; the header chip shows the active identity (`u:00000000…0001`)
+- **Dev PIN:** `7377`
+- **Dev mode:** global no-cache middleware — no stale bytes
+
+---
 
 ## Deployment
 
-Docker on Northflank (see `Dockerfile`). The backend serves the committed `frontend/dist` bundle — production deploys require `git add -f frontend/dist` per release process. Remote DB untouched pending local↔remote comparison.
+Docker on **Northflank** (`prompt-composer-console`, us-central). Production deploys via git push to `main` (CI/CD) or the local `DEPLOY-NORTHFLANK.sh` runbook.
+
+---
+
+## Documentation
+
+- [`SPECIFICATIONS.md`](SPECIFICATIONS.md) — A2UI Protocol v0.9.1 (verbatim from [a2ui.org](https://a2ui.org/))
+- [`READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md`](READ-ME/A2UI_TRUE_VS_FAKE_AUDIT.md) — Live-verified compliance ledger
+- [`CHANGELOG.md`](CHANGELOG.md) — Release history (includes the DeepSeek restoration battle)
+- [`A2UI_CARD_CONTRACT.md`](A2UI_CARD_CONTRACT.md) — Card component data contract
+
+---
 
 ## Roadmap
 
-- **Phase 3 (next):** generic adjacency-list renderer + JSON Pointer data binding (`DynamicString` resolution, `ChildList` templates, client→server `action` messages) — replaces the hand-parsed view logic
-- **Phase 4:** remaining READ-ME rewrites, changelog dedup
+- **Phase 3:** Generic adjacency-list renderer + JSON Pointer data binding
+- **Phase 4:** Remaining docs cleanup, advanced contributor workflows
 
 ---
 

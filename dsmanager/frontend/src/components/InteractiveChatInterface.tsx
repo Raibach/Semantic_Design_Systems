@@ -936,8 +936,10 @@ You are in the chat panel. Follow the WORKSPACE USER FLOW above. Use XML tags si
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'ns-resize';
-      document.body.style.userSelect = 'none';
+      // Don't change cursor during drag - let the user see what's under their cursor
+      // This prevents jerky motion
+      // document.body.style.cursor = 'ns-resize';
+      // document.body.style.userSelect = 'none';
     } else {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -1041,20 +1043,19 @@ You are in the chat panel. Follow the WORKSPACE USER FLOW above. Use XML tags si
   }, [selectedNav]);
 
   return (
-    <div className="bg-[rgba(255,255,255,0)] content-stretch flex items-start justify-center relative shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)] size-full overflow-hidden">
+    <div className="bg-[rgba(255,255,255,0)] content-stretch flex items-start justify-center relative shadow-[0px_4px_4px_0px_rgba(0,0,0,0.25)] h-full w-full min-h-0 min-w-0 overflow-hidden">
       {/* Lit A2UI chat navigation bar — replaces React SidebarNavigation */}
       <chat-navigation-bar
         ref={navBarRef}
         active-tab={isRightColumnCollapsed ? '' : (selectedNav === 'trace' || selectedNav === 'tools' ? selectedNav : 'chat')}
         collapsed={isRightColumnCollapsed ? 'true' : 'false'}
-        style={{ minHeight: '600px' }}
       >
         <img slot="logo" alt={getImageAlt('card-img-default')} loading="lazy" data-a2ui-id="card-img-default" src={getImageUrl('card-img-default')} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </chat-navigation-bar>
 
       <div
         data-tag="chat-panel"
-        className="flex flex-col h-full"
+        className="flex flex-col h-full min-h-0 min-w-0"
         style={{
           flex: '1 1 0%',
           opacity: isRightColumnCollapsed ? 0 : 1,

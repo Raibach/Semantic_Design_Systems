@@ -43,6 +43,7 @@
   "exclude": [
     "src/**/*.stories.ts",
     "src/**/*.stories.tsx",
-    "src/storybook/**"
+    "src/storybook/**",
+    "src/components/_old/**"
   ]
 }
