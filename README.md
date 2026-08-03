@@ -1,4 +1,4 @@
-# deterministic Design System Lifecycle Management — {impromptu}
+# Deterministic Design System Lifecycle Management — {impromptu}
 
 Deterministic runtime protocols, data schemas, and governance architectures 
 
