@@ -20,15 +20,9 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 MODEL_PROVIDERS = [
     {
         "name": "Z.ai API",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-4.7",
-        "api_key_env": "ZAI_API_KEY",
-    },
-    {
-        "name": "Z.ai API (fallback)",
         "base_url": "https://api.z.ai/api/paas/v4",
         "model": "glm-4.7",
-        "api_key_env": "ZAI_FALLBACK_API_KEY",
+        "api_key_env": "ZAI_API_KEY",
     },
 ]
 
