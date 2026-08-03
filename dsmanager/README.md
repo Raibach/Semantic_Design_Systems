@@ -1,6 +1,6 @@
-# Semantic Design System Manager
+# Interactive Design System Manager
 
-> **One surface. Any payload. AI fills the slots.**
+> **Deterministic runtime protocols, data schemas, and governance architectures - One surface. Any payload. AI fills the slots.**
 
 **Raibach Interactive Design Studio** · John Holt  
 Version **0.9.1** · A2UI Protocol Compliant · 2026-08-01
