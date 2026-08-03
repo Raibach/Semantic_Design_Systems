@@ -272,3 +272,158 @@ def extract_node_spec(node: Dict) -> Dict:
         spec["children"] = children
 
     return spec
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CACHE-FIRST SPEC ACCESSOR
+# Single source of truth for "give me a usable spec for this node." Used by
+# both the spec endpoint (figma.py /api/figma/spec) and runtime A2UI surface
+# assembly (ai.py render-* handlers). Runtime rendering must NEVER block on
+# live Figma — it reads the PostgreSQL figma_specs cache first and only falls
+# back to Figma on miss. This is the foundation of Figma-as-source-of-truth
+# for the Lit catalog: design is synced at authoring time, consumed from
+# cache at render time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _spec_has_design_data(spec: Optional[Dict]) -> bool:
+    """A spec is usable only if it carries real design data, not just
+    {id, name, type}. extract_node_spec returns the bare triple for dead/
+    empty nodes — those must not satisfy a cache hit (see DEAD NODE caveat
+    on extract_node_spec)."""
+    if not spec or not isinstance(spec, dict):
+        return False
+    return bool(spec.get("children") or spec.get("layout") or spec.get("fills"))
+
+
+def _spec_db_conn():
+    """Open a Postgres connection to the figma_specs cache. Best-effort: the
+    caller decides how to handle a missing/unreachable DB."""
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    return psycopg2.connect(os.getenv("DATABASE_URL"), cursor_factory=RealDictCursor)
+
+
+def _cache_read(file_key: str, node_id: str) -> Optional[Dict]:
+    """Read a cached spec row. Returns the spec dict or None on miss/absence.
+    Any DB error is swallowed (caller falls through to Figma)."""
+    try:
+        conn = _spec_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT file_key, node_id, name, spec, synced_at FROM figma_specs "
+            "WHERE file_key = %s AND node_id = %s",
+            (file_key, node_id),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row
+    except Exception as e:
+        print(f"⚠️ figma_specs cache read failed (falling through to Figma): {e}")
+        return None
+
+
+def _cache_upsert(file_key: str, node_id: str, name: Optional[str], spec: Dict) -> None:
+    """Write a spec row. Best-effort: a cache write failure never blocks the
+    caller — the spec is still returned to the requester."""
+    try:
+        conn = _spec_db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO figma_specs (file_key, node_id, name, spec, synced_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (file_key, node_id)
+            DO UPDATE SET name = EXCLUDED.name, spec = EXCLUDED.spec, synced_at = NOW()
+            """,
+            (file_key, node_id, name, json.dumps(spec)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ figma_specs cache upsert failed (spec still returned): {e}")
+
+
+def _fetch_and_cache(file_key: str, node_id: str) -> tuple[Optional[Dict], Optional[str]]:
+    """Pull a node live from Figma, extract its spec, and upsert the cache.
+    Returns (spec, error_detail). spec is None when the node is missing or
+    returned an empty/dead spec (caller should treat as a miss)."""
+    raw = get_node(file_key, node_id)
+    if not raw:
+        return None, f"Figma returned no data for node {node_id}"
+    if raw.get("error"):
+        return None, f"Figma API error: {raw['error']}"
+
+    # get_node returns the per-node envelope; the node document is nested.
+    document = raw.get("document", raw)
+    spec = extract_node_spec(document)
+    if not _spec_has_design_data(spec):
+        # Dead/empty node — do NOT cache garbage. Let the caller fall back.
+        return None, (
+            f"Figma node {node_id} returned EMPTY spec "
+            f"(no children, no layout, no fills). The node may have been "
+            f"deleted or moved in file {file_key}. "
+            f"Spec keys received: {list(spec.keys())}"
+        )
+    _cache_upsert(file_key, node_id, document.get("name"), spec)
+    return spec, None
+
+
+def get_cached_spec(
+    file_key: str,
+    node_id: str,
+    *,
+    refresh: bool = False,
+    allow_stale_fallback: bool = True,
+) -> tuple[Optional[Dict], Optional[str], str]:
+    """
+    Cache-first spec accessor — the single entry point for render time.
+
+    Resolution order:
+      1. Cache (PostgreSQL figma_specs) — unless refresh=True or DEV mode.
+         In DEV mode the cache is bypassed for read so every pull is fresh.
+      2. Live Figma pull + cache upsert.
+      3. Stale-cache fallback — if the live pull fails/returns an empty spec
+         AND allow_stale_fallback is True, serve whatever is in the cache so
+         runtime rendering survives transient Figma outages or dead nodes.
+      4. Give up.
+
+    Returns (spec, error_detail, source) where source is one of:
+      "cache" | "figma" | "stale-cache" | "miss".
+
+    Figma is the source of truth for surface layout, but runtime assembly
+    consumes it via this cache so a designer closing Figma, a network
+    blip, or a momentarily-empty node never takes down a surface.
+    """
+    node_id = node_id.replace("-", ":")
+
+    # 1) Cache read (skipped on refresh or in dev, to keep authoring loops hot)
+    if not refresh:
+        try:
+            from config import is_development
+            dev = is_development()
+        except Exception:
+            dev = False
+        if not dev:
+            row = _cache_read(file_key, node_id)
+            if row and _spec_has_design_data(row.get("spec")):
+                return row["spec"], None, "cache"
+
+    # 2) Live Figma pull + cache upsert
+    spec, err = _fetch_and_cache(file_key, node_id)
+    if spec:
+        return spec, None, "figma"
+
+    # 3) Stale-cache fallback (only triggered when the live pull failed)
+    if allow_stale_fallback:
+        row = _cache_read(file_key, node_id)
+        if row and _spec_has_design_data(row.get("spec")):
+            print(
+                f"[figma] serving STALE cache for {file_key}/{node_id} "
+                f"(live pull failed: {err})"
+            )
+            return row["spec"], err, "stale-cache"
+
+    # 4) Nothing usable
+    return None, err or "Figma spec is None", "miss"
