@@ -107,6 +107,11 @@ def query_llm(
         "stream": False,
     }
 
+    # GLM-4.7 is a reasoning model — disable thinking for deterministic JSON
+    # assembly so responses stay fast and land in `content` (not reasoning_content)
+    if mode in ("console_assembly", "surface_assembly"):
+        payload["thinking"] = {"type": "disabled"}
+
     if mode == "console_assembly":
         payload["response_format"] = {"type": "json_object"}
 
