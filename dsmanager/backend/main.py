@@ -79,7 +79,7 @@ async def startup_event():
     import services
     services.init_services(database_url)
 
-    # Z.ai GLM-5.2 startup verification (primary provider)
+    # Z.ai GLM-4.7 startup verification (primary provider)
     from model_server_manager import ensure_grace_server
     ensure_grace_server("zai")
 

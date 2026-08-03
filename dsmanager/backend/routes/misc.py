@@ -96,7 +96,7 @@ async def api_health():
     if not milvus_ok:
         critical_failures.append("milvus")
 
-    # ── Z.ai GLM-5.2 check (primary + fallback) ──
+    # ── Z.ai GLM-4.7 check (primary + fallback) ──
     zai_ok = False
     zai_error = None
     zai_fallback_ok = False

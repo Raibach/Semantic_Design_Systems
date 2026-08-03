@@ -23,8 +23,9 @@ from grace_gui import (
 )
 from agent_rpc_handler import AgentRpcHandler
 from figma_service import (
-    get_file, get_file_versions, get_component, get_node,
-    get_dev_resources, search_file, extract_node_spec,
+    get_file, get_file_versions, get_component,
+    get_dev_resources, search_file,
+    get_cached_spec,
 )
 from milvus_rest import MilvusREST
 from role_caps import get_filtered_manifest, get_user_role, get_role_capabilities
@@ -404,32 +405,29 @@ Output ONLY this exact JSON (no markdown, no extra text):
         #   (which components, in what arrangement) from the Figma spec.
         ms_a = 0.0
 
-        # Fetch live Figma spec for the composer surface.
-        # NOTE: node ID "40000717:17091" is HARDCODED and currently
-        # returns an empty spec (48 chars, zero children). This is the
-        # root cause of composer assembly failures. The node may have
-        # been deleted or moved in the Figma file. Fix: verify the
-        # correct node ID or make it configurable.
+        # Spec is read cache-first via get_cached_spec — the same accessor
+        # the /api/figma/spec endpoint uses. Runtime assembly must NEVER
+        # block on live Figma: design is synced into figma_specs at
+        # authoring time and consumed from the cache at render time. This
+        # is the foundation of Figma-as-source-of-truth for the Lit
+        # catalog and is what lets a surface survive a designer closing
+        # Figma, a network blip, or a momentarily-empty node.
+        #
+        # Node "40000717:17091" is HARDCODED and historically returns an
+        # empty spec (48 chars, zero children — the node was deleted/moved
+        # in the Figma file). get_cached_spec will fall back to a stale
+        # cache row if one exists, so re-syncing the node (or fixing the
+        # ID) restores the surface without a code change.
         FIGMA_FILE_KEY = "20UPR2KQMsbAxlo5NJb1se"
         FIGMA_NODE_ID = "40000717:17091"
         figma_spec = None
         figma_error_detail = None
+        figma_source = "miss"
         try:
-            raw = get_node(FIGMA_FILE_KEY, FIGMA_NODE_ID)
-            if raw and raw.get("error"):
-                figma_error_detail = f"Figma API error: {raw['error']}"
-            elif raw:
-                figma_spec = extract_node_spec(raw)
-                # extract_node_spec returns {"id":..., "name":..., "type":...}
-                # even for empty/dead nodes. Check for actual design data:
-                if not figma_spec.get("children") and not figma_spec.get("layout") and not figma_spec.get("fills"):
-                    figma_error_detail = (
-                        f"Figma node {FIGMA_NODE_ID} returned EMPTY spec "
-                        f"(no children, no layout, no fills). The node may have been "
-                        f"deleted or moved in file {FIGMA_FILE_KEY}. "
-                        f"Spec keys received: {list(figma_spec.keys())}"
-                    )
-                    figma_spec = None  # Treat as missing — don't send garbage to the LLM
+            figma_spec, figma_error_detail, figma_source = get_cached_spec(
+                FIGMA_FILE_KEY, FIGMA_NODE_ID,
+                allow_stale_fallback=True,
+            )
         except Exception as e:
             figma_error_detail = f"Figma fetch exception: {e}"
             import traceback
@@ -440,9 +438,11 @@ Output ONLY this exact JSON (no markdown, no extra text):
                 f"[A2UI Composer] ASSEMBLY BLOCKED — no Figma spec:\n"
                 f"  file_key: {FIGMA_FILE_KEY}\n"
                 f"  node_id: {FIGMA_NODE_ID}\n"
+                f"  source: {figma_source}\n"
                 f"  reason: {figma_error_detail or 'Figma spec is None'}\n"
                 f"  timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
-                f"  FIX: Verify the Figma node ID exists and has children/layout/fills."
+                f"  FIX: Re-sync the node (hit /api/figma/spec/{FIGMA_FILE_KEY}/{FIGMA_NODE_ID}?refresh=true"
+                f" once it has design data in Figma), or correct the node ID."
             )
             raise HTTPException(
                 status_code=503,
@@ -481,7 +481,7 @@ Output ONLY valid JSON (no markdown):
             mode="surface_assembly",
             temperature=0.0,
             prompt_id="surface-assembly-composer"
-            # model intentionally omitted — use the enabled provider's default (e.g. glm-5.2 via Z.ai)
+            # model intentionally omitted — use the enabled provider's default (e.g. glm-4.7 via Z.ai)
         )
         ms_b = (time.perf_counter() - t_b_start) * 1000
 

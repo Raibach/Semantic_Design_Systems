@@ -17,13 +17,13 @@ PROVIDERS = {
     "zai": {
         "name": "Z.ai API",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-5.2",
+        "model": "glm-4.7",
         "api_key_env": "ZAI_API_KEY",
     },
     "zai_fallback": {
         "name": "Z.ai API (fallback)",
         "base_url": "https://api.z.ai/api/paas/v4",
-        "model": "glm-5.2",
+        "model": "glm-4.7",
         "api_key_env": "ZAI_FALLBACK_API_KEY",
     },
 }

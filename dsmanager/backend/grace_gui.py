@@ -2,7 +2,7 @@
 Grace — LLM query layer for the prompt-composer backend.
 
 Single entry point: query_llm().
-Providers are tried in priority order; Z.ai GLM-5.2 drives all A2UI paths.
+Providers are tried in priority order; Z.ai GLM-4.7 drives all A2UI paths.
 Assembly/chat hard-fail if ALL providers are down — no fake surfaces.
 """
 
@@ -21,13 +21,13 @@ MODEL_PROVIDERS = [
     {
         "name": "Z.ai API",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-5.2",
+        "model": "glm-4.7",
         "api_key_env": "ZAI_API_KEY",
     },
     {
         "name": "Z.ai API (fallback)",
         "base_url": "https://api.z.ai/api/paas/v4",
-        "model": "glm-5.2",
+        "model": "glm-4.7",
         "api_key_env": "ZAI_FALLBACK_API_KEY",
     },
 ]

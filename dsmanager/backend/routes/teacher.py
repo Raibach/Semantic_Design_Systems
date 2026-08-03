@@ -52,7 +52,7 @@ class TeacherQueryRequest(BaseModel):
 
 
 class EnsureModelRequest(BaseModel):
-    model_type: str = "grace"  # "grace" (Z.ai GLM-5.2), "karen", "lm_studio", or "zai"
+    model_type: str = "grace"  # "grace" (Z.ai GLM-4.7), "karen", "lm_studio", or "zai"
 
 
 @router.post("/api/teacher/query")
@@ -69,7 +69,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
         sentry_sdk.set_user({"id": uid})
         if conv_id:
             sentry_sdk.set_tag("gen_ai.conversation.id", conv_id)
-        sentry_sdk.set_tag("ai.model", "glm-5.2")
+        sentry_sdk.set_tag("ai.model", "glm-4.7")
         sentry_sdk.set_tag("ai.provider", "zai")
         sentry_sdk.set_tag("ai.mode", request.mode)
         sentry_sdk.set_tag("ai.temperature", str(request.temperature))
@@ -140,7 +140,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
             self_reflection=request.self_reflection,
             editorial=request.editorial,
             mode=mode,
-            model="glm-5.2",
+            model="glm-4.7",
         )
 
         # ── Audit logging (fire-and-forget) ──────────────────────────
@@ -152,7 +152,7 @@ async def api_teacher_query(request: TeacherQueryRequest):
                 cursor.execute(
                     "INSERT INTO audit_logs (user_id, action, resource_type, resource_id, metadata) VALUES (%s, %s, %s, %s, %s)",
                     (uid, "teacher_query", "conversation", conv_id, json.dumps({
-                        "model": "glm-5.2",
+                        "model": "glm-4.7",
                         "temperature": request.temperature,
                         "mode": mode,
                         "latency_ms": latency_ms,
@@ -192,7 +192,7 @@ async def api_ensure_model(request: EnsureModelRequest):
         mt = request.model_type.lower()
         if mt in ("grace", "zai", "glm", "karen", "lm_studio"):
             success = ensure_grace_server("zai")
-            model_name = "GLM-5.2 (Z.ai)"
+            model_name = "GLM-4.7 (Z.ai)"
         else:
             raise HTTPException(
                 status_code=400, detail=f"Unknown model type: {request.model_type}"
