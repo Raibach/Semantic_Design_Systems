@@ -1,6 +1,6 @@
-# Semantic Design System Lifecycle Management — {impromptu}
+# deterministic Design System Lifecycle Management — {impromptu}
 
-deterministic runtime protocols, data schemas, and governance architectures 
+Deterministic runtime protocols, data schemas, and governance architectures 
 
 **Built by John Holt, Raibach Interactive Design Studio**
 **Date:** 2026-07-27 · **Status:** Active Development (A2UI 0.9.1)
@@ -31,16 +31,7 @@ An **A2UI (Agent-to-User Interface) workspace**: a single, stable three-column s
 - **Contributor model** — `session_permissions` (owner/editor/viewer) with owner-gated grant/revoke/transfer; permission-aware reads and writes; 36/36 owner coverage
 - **Data layer** — local PostgreSQL `railway` (source of truth, 42 tables) + Zilliz Cloud vector memory (8 collections, 384-dim) + DeepSeek assembly — all connected and verified live
 
-## Development
 
-```bash
-cd dsmanager
-bash RESTART-LOCAL.sh         # boots backend on :5173 (verifies .env/.venv/Postgres first)
-cd frontend && npm run build  # rebuild dist AFTER any frontend change (backend serves dist)
-```
+Next ... Structure the database logging table schemas for your unalterable RACI ledger.Outline the core functional specifications for the STB "Oil Can" prototype demo.
 
-Health: `GET /api/health` → `{"database":"connected","milvus":"connected"}` · Access: PIN gate (dev) · Dev phase: global no-cache, long loads expected.
-
----
-
-*"The interface never changes. The AI delivers different levels of access. That's the architecture."*
+--
