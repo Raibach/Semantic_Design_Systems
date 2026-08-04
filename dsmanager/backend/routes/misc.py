@@ -123,29 +123,12 @@ async def api_health():
     if not zai_ok and not zai_fallback_ok:
         critical_failures.append("zai")
 
-    # ── Figma API check (design spec extraction) ──
-    figma_ok = False
-    figma_error = None
-    try:
-        import os
-        figma_token = os.getenv("FIGMA_TOKEN")
-        if figma_token:
-            import urllib.request
-            req = urllib.request.Request(
-                "https://api.figma.com/v1/me",
-                headers={"X-Figma-Token": figma_token}
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                figma_ok = resp.status == 200
-        else:
-            figma_error = "FIGMA_TOKEN not set"
-    except Exception as e:
-        figma_error = str(e)[:80]
-    health_data["checks"]["figma"] = "connected" if figma_ok else "DISCONNECTED"
-    if figma_error and not figma_ok:
-        health_data["checks"]["figma_detail"] = figma_error
-    # Figma is important but not critical enough to degrade overall status
-    # (A2UI can still assemble surfaces from catalog without live Figma)
+    # ── Figma: DISABLED ──
+    # Was pinging api.figma.com/v1/me on EVERY /api/health call — a live
+    # network round-trip on every page load. Figma is not needed for A2UI
+    # surface assembly (removed from render-composer on 2026-08-04).
+    # Reporting it as "disabled" so the health endpoint stays fast.
+    health_data["checks"]["figma"] = "disabled"
 
     # ── Overall status ──
     if critical_failures:

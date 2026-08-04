@@ -22,11 +22,6 @@ from grace_gui import (
     summarize_pdfs, milvus_save_version, milvus_get_versions,
 )
 from agent_rpc_handler import AgentRpcHandler
-from figma_service import (
-    get_file, get_file_versions, get_component,
-    get_dev_resources, search_file,
-    get_cached_spec,
-)
 from milvus_rest import MilvusREST
 from role_caps import get_filtered_manifest, get_user_role, get_role_capabilities
 
@@ -394,82 +389,65 @@ Output ONLY this exact JSON (no markdown, no extra text):
     # INTENT: render-composer (blank workspace)
     # ═══════════════════════════════════════════════════════════════
     elif intent == "render-composer":
-        # ── HONEST STATUS (2026-08-01): ──
-        # TRUE:  AI decides the data payload (sections, title, message).
-        # TRUE:  On failure, returns 503 — no fake fallback. Correct.
-        # NOT TRUE YET: "AI assembles the FULL surface" — the envelope
-        #   hardcodes left_column / middle_column / right_column shape.
-        #   AI cannot decide "this task needs 4 columns" or "skip the
-        #   output viewer." It can only populate data into a fixed frame.
-        # DISCOVERY GOAL: AI should emit the component tree itself
-        #   (which components, in what arrangement) from the Figma spec.
+        # ── HONEST STATUS (2026-08-04): ──
+        # FIGMA DISABLED — was causing 10s timeouts when the cached spec
+        # was empty/stale (node 40000717:17091 deleted in Figma). The LLM
+        # would choke on an empty spec and the frontend would abort.
+        # Assembly now proceeds WITHOUT Figma. The model derives the
+        # surface layout from its own knowledge of the A2UI catalog.
         ms_a = 0.0
-
-        # Spec is read cache-first via get_cached_spec — the same accessor
-        # the /api/figma/spec endpoint uses. Runtime assembly must NEVER
-        # block on live Figma: design is synced into figma_specs at
-        # authoring time and consumed from the cache at render time. This
-        # is the foundation of Figma-as-source-of-truth for the Lit
-        # catalog and is what lets a surface survive a designer closing
-        # Figma, a network blip, or a momentarily-empty node.
-        #
-        # Node "40000717:17091" is HARDCODED and historically returns an
-        # empty spec (48 chars, zero children — the node was deleted/moved
-        # in the Figma file). get_cached_spec will fall back to a stale
-        # cache row if one exists, so re-syncing the node (or fixing the
-        # ID) restores the surface without a code change.
-        FIGMA_FILE_KEY = "20UPR2KQMsbAxlo5NJb1se"
-        FIGMA_NODE_ID = "40000717:17091"
-        figma_spec = None
-        figma_error_detail = None
-        figma_source = "miss"
-        try:
-            figma_spec, figma_error_detail, figma_source = get_cached_spec(
-                FIGMA_FILE_KEY, FIGMA_NODE_ID,
-                allow_stale_fallback=True,
-            )
-        except Exception as e:
-            figma_error_detail = f"Figma fetch exception: {e}"
-            import traceback
-            print(f"[A2UI Composer] Figma fetch EXCEPTION:\n  type: {type(e).__name__}\n  message: {e}\n  traceback:\n{traceback.format_exc()}")
-
-        if not figma_spec:
-            print(
-                f"[A2UI Composer] ASSEMBLY BLOCKED — no Figma spec:\n"
-                f"  file_key: {FIGMA_FILE_KEY}\n"
-                f"  node_id: {FIGMA_NODE_ID}\n"
-                f"  source: {figma_source}\n"
-                f"  reason: {figma_error_detail or 'Figma spec is None'}\n"
-                f"  timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
-                f"  FIX: Re-sync the node (hit /api/figma/spec/{FIGMA_FILE_KEY}/{FIGMA_NODE_ID}?refresh=true"
-                f" once it has design data in Figma), or correct the node ID."
-            )
-            raise HTTPException(
-                status_code=503,
-                detail=f"A2UI FAILURE: Cannot assemble composer — {figma_error_detail or 'Figma spec is None'}. Figma is the source of truth for surface layout."
-            )
-
-        figma_json = json.dumps(figma_spec)[:8000]  # keep prompt size reasonable
 
         llm_prompt = f"""You are Grace, the A2UI surface assembler.
 
-Figma design spec (source of truth — derive every element, layout, panel, and binding from this):
-{figma_json}
-
 The user clicked "Composer". Assemble the FULL surface using A2UI v0.9.1.
 
-Derive:
-- All components and their exact hierarchy from the Figma spec
-- The right side panel (Resources, Variables, Efficiency, etc.) exactly as shown
-- Data bindings for sections, output, chat
-- Initial sections, title, greeting
+COMPONENT CATALOG (only these):
+- Column (children array)
+- PromptWorkspace (children array — three columns: left, middle, right)
+- PromptSection (name, content, placeholder)
+- OutputViewer (content)
+- ChatPanel (messages)
+- Text (text, variant)
 
-Output ONLY valid JSON (no markdown):
+LAYOUT CONTRACT (fixed slots — you fill them, you do not remove them):
+- left_column: prompt editing sections (System Role, User Role, Context, Constraints, Few Shot, Tool Call)
+- middle_column: compiled output viewer
+- right_column: chat panel + resources
+
+Assemble the FULL surface with these requirements:
+1. id "root" Column at top
+2. PromptWorkspace with three column children
+3. Left column: 6 PromptSection components (System Role, User Role, Context, Constraints, Few Shot, Tool Call) — each with a helpful placeholder
+4. Middle column: OutputViewer with empty content
+5. Right column: ChatPanel ready for conversation
+6. A short friendly greeting as ai_message
+7. A suggested_title for the new session
+
+Output ONLY valid JSON (no markdown, no extra text):
 {{
-  "components": [ ... adjacency list derived from Figma ... ],
-  "initial_sections": [ ... ],
-  "suggested_title": "...",
-  "ai_message": "..."
+  "components": [
+    {{"id": "root", "component": "Column", "children": ["workspace"]}},
+    {{"id": "workspace", "component": "PromptWorkspace", "children": ["left-col", "middle-col", "right-col"]}},
+    {{"id": "left-col", "component": "Column", "children": ["section-1", "section-2", "section-3", "section-4", "section-5", "section-6"]}},
+    {{"id": "section-1", "component": "PromptSection", "name": "System Role", "content": "", "placeholder": "Define the AI's role..."}},
+    {{"id": "section-2", "component": "PromptSection", "name": "User Role", "content": "", "placeholder": "Define what the user provides..."}},
+    {{"id": "section-3", "component": "PromptSection", "name": "Context", "content": "", "placeholder": "Background information..."}},
+    {{"id": "section-4", "component": "PromptSection", "name": "Constraints", "content": "", "placeholder": "Rules the AI must follow..."}},
+    {{"id": "section-5", "component": "PromptSection", "name": "Few Shot", "content": "", "placeholder": "Examples..."}},
+    {{"id": "section-6", "component": "PromptSection", "name": "Tool Call", "content": "", "placeholder": "Source code or API to analyze..."}},
+    {{"id": "middle-col", "component": "OutputViewer", "content": ""}},
+    {{"id": "right-col", "component": "ChatPanel", "messages": []}}
+  ],
+  "initial_sections": [
+    {{"name": "System Role", "content": ""}},
+    {{"name": "User Role", "content": ""}},
+    {{"name": "Context", "content": ""}},
+    {{"name": "Constraints", "content": ""}},
+    {{"name": "Few Shot", "content": ""}},
+    {{"name": "Tool Call", "content": ""}}
+  ],
+  "suggested_title": "New Prompt",
+  "ai_message": "Your greeting here"
 }}"""
 
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
