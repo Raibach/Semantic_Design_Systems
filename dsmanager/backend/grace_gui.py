@@ -107,7 +107,7 @@ def query_llm(
         "stream": False,
     }
 
-    if mode == "console_assembly":
+    if mode in ("console_assembly", "surface_assembly"):
         payload["response_format"] = {"type": "json_object"}
 
     # ── Provider fallback loop ───────────────────────────────────────
