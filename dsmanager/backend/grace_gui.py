@@ -2,7 +2,7 @@
 Grace — LLM query layer for the prompt-composer backend.
 
 Single entry point: query_llm().
-Providers are tried in priority order; Z.ai GLM-4.7 drives all A2UI paths.
+Providers are tried in priority order; DeepSeek drives all A2UI paths.
 Assembly/chat hard-fail if ALL providers are down — no fake surfaces.
 """
 
@@ -19,10 +19,10 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 # ═══════════════════════════════════════════════════════════════════════════════
 MODEL_PROVIDERS = [
     {
-        "name": "Z.ai API",
-        "base_url": "https://api.z.ai/api/paas/v4",
-        "model": "glm-4.7",
-        "api_key_env": "ZAI_API_KEY",
+        "name": "DeepSeek API",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash",
+        "api_key_env": "DEEPSEEK_API_KEY",
     },
 ]
 
