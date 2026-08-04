@@ -399,27 +399,27 @@ Output ONLY this exact JSON (no markdown, no extra text):
 
         llm_prompt = f"""You are Grace, the A2UI surface assembler.
 
-The user clicked "Composer". Assemble the FULL surface using A2UI v0.9.1.
+The user clicked "Composer". Assemble the FULL surface using components from the trusted A2UI v0.9.1 catalog.
 
-COMPONENT CATALOG (only these):
-- Column (children array)
-- PromptWorkspace (children array — three columns: left, middle, right)
-- PromptSection (name, content, placeholder)
-- OutputViewer (content)
-- ChatPanel (messages)
-- Text (text, variant)
+TRUSTED COMPONENTS (use ONLY these exact names):
+- Column (props: children array of child IDs)
+- workspace-layout (three-column workspace container)
+- prompt-section-editor (props: name, content, placeholder)
+- output-panel (props: content)
+- chat-panel (props: messages array)
+- Text (props: text, variant)
 
 LAYOUT CONTRACT (fixed slots — you fill them, you do not remove them):
-- left_column: prompt editing sections (System Role, User Role, Context, Constraints, Few Shot, Tool Call)
+- left_column: prompt editing sections
 - middle_column: compiled output viewer
-- right_column: chat panel + resources
+- right_column: chat panel
 
-Assemble the FULL surface with these requirements:
+Assemble the FULL surface:
 1. id "root" Column at top
-2. PromptWorkspace with three column children
-3. Left column: 6 PromptSection components (System Role, User Role, Context, Constraints, Few Shot, Tool Call) — each with a helpful placeholder
-4. Middle column: OutputViewer with empty content
-5. Right column: ChatPanel ready for conversation
+2. workspace-layout with three column children
+3. Left column: 6 prompt-section-editor components for: System Role, User Role, Context, Constraints, Few Shot, Tool Call
+4. Middle column: output-panel with empty content
+5. Right column: chat-panel ready for conversation
 6. A short friendly greeting as ai_message
 7. A suggested_title for the new session
 
@@ -427,16 +427,16 @@ Output ONLY valid JSON (no markdown, no extra text):
 {{
   "components": [
     {{"id": "root", "component": "Column", "children": ["workspace"]}},
-    {{"id": "workspace", "component": "PromptWorkspace", "children": ["left-col", "middle-col", "right-col"]}},
-    {{"id": "left-col", "component": "Column", "children": ["section-1", "section-2", "section-3", "section-4", "section-5", "section-6"]}},
-    {{"id": "section-1", "component": "PromptSection", "name": "System Role", "content": "", "placeholder": "Define the AI's role..."}},
-    {{"id": "section-2", "component": "PromptSection", "name": "User Role", "content": "", "placeholder": "Define what the user provides..."}},
-    {{"id": "section-3", "component": "PromptSection", "name": "Context", "content": "", "placeholder": "Background information..."}},
-    {{"id": "section-4", "component": "PromptSection", "name": "Constraints", "content": "", "placeholder": "Rules the AI must follow..."}},
-    {{"id": "section-5", "component": "PromptSection", "name": "Few Shot", "content": "", "placeholder": "Examples..."}},
-    {{"id": "section-6", "component": "PromptSection", "name": "Tool Call", "content": "", "placeholder": "Source code or API to analyze..."}},
-    {{"id": "middle-col", "component": "OutputViewer", "content": ""}},
-    {{"id": "right-col", "component": "ChatPanel", "messages": []}}
+    {{"id": "workspace", "component": "workspace-layout", "children": ["left-col", "middle-col", "right-col"]}},
+    {{"id": "left-col", "component": "Column", "children": ["section-system-role", "section-user-role", "section-context", "section-constraints", "section-few-shot", "section-tool-call"]}},
+    {{"id": "section-system-role", "component": "prompt-section-editor", "name": "System Role", "content": "", "placeholder": "Define the AI's role..."}},
+    {{"id": "section-user-role", "component": "prompt-section-editor", "name": "User Role", "content": "", "placeholder": "Define what the user provides..."}},
+    {{"id": "section-context", "component": "prompt-section-editor", "name": "Context", "content": "", "placeholder": "Background information..."}},
+    {{"id": "section-constraints", "component": "prompt-section-editor", "name": "Constraints", "content": "", "placeholder": "Rules the AI must follow..."}},
+    {{"id": "section-few-shot", "component": "prompt-section-editor", "name": "Few Shot", "content": "", "placeholder": "Examples of desired output..."}},
+    {{"id": "section-tool-call", "component": "prompt-section-editor", "name": "Tool Call", "content": "", "placeholder": "Source code or API to analyze..."}},
+    {{"id": "middle-col", "component": "output-panel", "content": ""}},
+    {{"id": "right-col", "component": "chat-panel", "messages": []}}
   ],
   "initial_sections": [
     {{"name": "System Role", "content": ""}},
