@@ -399,55 +399,24 @@ Output ONLY this exact JSON (no markdown, no extra text):
 
         llm_prompt = f"""You are Grace, the A2UI surface assembler.
 
-The user clicked "Composer". Assemble the FULL surface using components from the trusted A2UI v0.9.1 catalog.
+The user clicked "Composer". Assemble the FULL surface.
 
-TRUSTED COMPONENTS (use ONLY these exact names):
-- Column (props: children array of child IDs)
-- workspace-layout (three-column workspace container)
-- prompt-section-editor (props: name, content, placeholder)
-- output-panel (props: content)
-- chat-panel (props: messages array)
-- Text (props: text, variant)
+TRUSTED CATALOG — every component you may use:
+{json.dumps(list(a2ui_catalog.get("components", {}).keys()), indent=2)}
 
-LAYOUT CONTRACT (fixed slots — you fill them, you do not remove them):
+LAYOUT CONTRACT — three fixed slots, you fill them:
 - left_column: prompt editing sections
 - middle_column: compiled output viewer
 - right_column: chat panel
 
-Assemble the FULL surface:
-1. id "root" Column at top
-2. workspace-layout with three column children
-3. Left column: 6 prompt-section-editor components for: System Role, User Role, Context, Constraints, Few Shot, Tool Call
-4. Middle column: output-panel with empty content
-5. Right column: chat-panel ready for conversation
-6. A short friendly greeting as ai_message
-7. A suggested_title for the new session
+Derive the complete adjacency list. Decide which components go where, their hierarchy, ids, and props. No hand-holding.
 
-Output ONLY valid JSON (no markdown, no extra text):
+Output ONLY valid JSON:
 {{
-  "components": [
-    {{"id": "root", "component": "Column", "children": ["workspace"]}},
-    {{"id": "workspace", "component": "workspace-layout", "children": ["left-col", "middle-col", "right-col"]}},
-    {{"id": "left-col", "component": "Column", "children": ["section-system-role", "section-user-role", "section-context", "section-constraints", "section-few-shot", "section-tool-call"]}},
-    {{"id": "section-system-role", "component": "prompt-section-editor", "name": "System Role", "content": "", "placeholder": "Define the AI's role..."}},
-    {{"id": "section-user-role", "component": "prompt-section-editor", "name": "User Role", "content": "", "placeholder": "Define what the user provides..."}},
-    {{"id": "section-context", "component": "prompt-section-editor", "name": "Context", "content": "", "placeholder": "Background information..."}},
-    {{"id": "section-constraints", "component": "prompt-section-editor", "name": "Constraints", "content": "", "placeholder": "Rules the AI must follow..."}},
-    {{"id": "section-few-shot", "component": "prompt-section-editor", "name": "Few Shot", "content": "", "placeholder": "Examples of desired output..."}},
-    {{"id": "section-tool-call", "component": "prompt-section-editor", "name": "Tool Call", "content": "", "placeholder": "Source code or API to analyze..."}},
-    {{"id": "middle-col", "component": "output-panel", "content": ""}},
-    {{"id": "right-col", "component": "chat-panel", "messages": []}}
-  ],
-  "initial_sections": [
-    {{"name": "System Role", "content": ""}},
-    {{"name": "User Role", "content": ""}},
-    {{"name": "Context", "content": ""}},
-    {{"name": "Constraints", "content": ""}},
-    {{"name": "Few Shot", "content": ""}},
-    {{"name": "Tool Call", "content": ""}}
-  ],
-  "suggested_title": "New Prompt",
-  "ai_message": "Your greeting here"
+  "components": [ ... your derived adjacency list ... ],
+  "initial_sections": [ ... ],
+  "suggested_title": "...",
+  "ai_message": "..."
 }}"""
 
         # ── PERFORMANCE TRACE: Milestone B (Network/LLM) ──
